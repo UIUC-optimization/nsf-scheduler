@@ -1,0 +1,6 @@
+Room ID,Name,Capacity,Projector,Computers,Whiteboard
+0,Room A,20,Y,Y,N
+1,Room B,30,Y,Y,Y
+2,Room C,50,N,Y,Y
+3,Room D,50,Y,N,Y
+4,Auditorium,200,Y,N,Y

@@ -1,0 +1,55 @@
+# Ignore common code files
+*.a
+*.so
+*.d
+*.o
+*.debug
+gmon.out
+*_d
+
+# Ignore common LaTeX files
+*.pdf
+*.log
+*.aux
+*.bbl
+*.blg
+*.bak
+*.swp
+*.toc
+*.lof
+*~
+
+# Miscellaneous
+.svn
+
+# Put your stuff here
+code/scheduler
+code/scheduler-debug
+
+# Visual Studio Ignores:
+*.obj
+*.exe
+*.pdb
+*.user
+*.aps
+*.pch
+*.vspscc
+*_i.c
+*_p.c
+*.ncb
+*.suo
+*.tlb
+*.tlh
+*.bak
+*.cache
+*.ilk
+*.log
+[Bb]in
+[Dd]ebug*/
+*.lib
+*.sbr
+obj/
+[Rr]elease*/
+_ReSharper*/
+[Tt]est[Rr]esult*
+*sdf*
