@@ -251,9 +251,13 @@ build the code (this may require some modifications).
 Running the Code
 -------------------------------------------------------------------------------
 
-To run the code, simply execute:
+To run the code, simply execute the following in the `code/` directory:
 
     ./scheduler <roomsFile> <datesFile> <panelsFile>
+
+With the example data, this would be:
+
+    ./scheduler ../data/small/rooms.csv ../data/small/dates.csv ../data/small/panels.csv
 
 The following additional arguments are optional:
 
