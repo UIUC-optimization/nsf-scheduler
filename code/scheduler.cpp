@@ -36,10 +36,6 @@ vector<Panel> panels;
 Config conf;
 vector<pair<int,int> > dateIntervals;
 
-// TODO: Debug Greedy Solver
-//  - Debug Greedy Solver
-//  - Update output to streams instead of file handles
-
 int main(int argc, const char **argv)
 {
     parseArgs(argc, argv);
@@ -142,7 +138,7 @@ void printUsageAndExit(const char *argv0)
         "       [-s <schedule file>]    (File to print the schedule (CSV))\n"
         "       [-u <unscheduled file>] (File to list unsched. panels (CSV))\n"
         "       [-e]                    (Use exact scheduler (DEFAULT))\n"
-        "       [-g]                    (Use greedy scheduler (IN DEVELOPMENT)\n"
+        "       [-g]                    (Use greedy scheduler (IN PROGRESS)\n"
         "       [-r]                    (Use random scheduler)\n"
         "       [-n <numAttempts>]      (Number of attempts for random alg.)\n"
         "       [-p]                    (Prints additional solver info)\n",
@@ -331,9 +327,9 @@ void initializeDateIntervalsHelper(int sdIID, int cdIID, int edIID)
 void initializeOutputStream()
 {
     if (strlen(conf.outputFile) > 0) {
-        std::ofstream *ofstream = new std::ofstream();
-        ofstream->open(conf.outputFile, std::ofstream::out);
-        conf.outstream = ofstream;
+        std::ofstream *ofs = new std::ofstream();
+        ofs->open(conf.outputFile, std::ofstream::out);
+        conf.outstream = ofs;
     } else {
         conf.outstream = &std::cout;
     }
@@ -568,7 +564,7 @@ void feasibilityPostTest(vector<Assignment> &assignments)
             }
             unusedRooms[ind] = unusedRooms.back();
             unusedRooms.pop_back();
-            // Check if panel request in assignment was actually for this date
+            // Check if panel in assignment was actually for this date
             // (and has not been assigned to another room on the same date)
             ind = -1;
             for (int j = 0; j < unscheduledPanels.size(); ++j) {
@@ -612,20 +608,14 @@ vector<Assignment> solve(SolutionInfo &si)
         for (int iIID = 0; iIID < dateIntervals.size(); ++iIID) {
             append(assignments, exactlyScheduleInterval(iIID, si));
         }
-    } else if (conf.alg == RANDOM) {
-        *conf.outstream << " \n    \"algorithm\": \"Randomized-"
-                        << conf.RANDOM_numAttempts << "\""
+    } else if ((conf.alg == RANDOM) || (conf.alg == GREEDY)) {
+        *conf.outstream << " \n    \"algorithm\": \""
+                        << ((conf.alg == RANDOM) ? "Random" : "Greedy")
+                        << "-" << conf.RANDOM_numAttempts << "\""
                         << ",\n    \"details\": ["
                         << " \n      \"Notes\"";
         for (int iIID = 0; iIID < dateIntervals.size(); ++iIID) {
             append(assignments, randomlyScheduleInterval(iIID, si));
-        }
-    } else if (conf.alg == GREEDY) {
-        *conf.outstream << " \n    \"algorithm\": \"Greedy\""
-                        << ",\n    \"details\": ["
-                        << " \n      \"Notes\"";
-        for (int iIID = 0; iIID < dateIntervals.size(); ++iIID) {
-            append(assignments, greedilyScheduleInterval(iIID, si));
         }
     } else {
         printf("Unknown algorithm.\n");
@@ -708,7 +698,7 @@ vector<Assignment> exactlyScheduleInterval(int iIID, SolutionInfo &si)
     // Construct a schedule
     vector<Assignment> intAssignments = ext_scheduleForInterval(bi);
 
-    // If time limit was hit, try the random solver
+    // If time limit was hit for this interval, try the random solver
     if ((bi.exceededTimeLimit) && (conf.EXACT_useRandomAfterExact) &&
         (intAssignments.size() < bi.numPanelsInInterval)) {
         vector<Assignment> rndAssignments = randomlyScheduleInterval(iIID, si);
@@ -791,7 +781,6 @@ vector<Assignment> ext_scheduleForInterval(BranchInfo &bi)
     }
 
     // Identify a random multi-day panel for scheduling
-    //int rnd = randomGen.IRandom(0, bi.remMDPanels.size() - 1);
     int rnd = randomInt(0, bi.remMDPanels.size() - 1);
     int pIID = bi.remMDPanels[rnd];
     int psdIID = panels[pIID].startingDateIID;
@@ -996,8 +985,8 @@ int computeScheduledPanelsBound(BranchInfo &bi, int satisfiedPanelReqsBound)
             numMultiDayPanelsByLength[lengthMDPi - 2] += 1;
         }
         // Now start adding panels to the number of scheduled panels while
-        // removing their contribution to the total satisfied panel
-        // requests bound
+        // removing their contribution to the total satisfied panel requests
+        // bound
         for (int i = 0; i < numMultiDayPanelsByLength.size(); ++i) {
             int curLength = i + 2;
             if (curLength > numRemSatisfiedReqs) { break; }
@@ -1016,7 +1005,7 @@ int computeScheduledPanelsBound(BranchInfo &bi, int satisfiedPanelReqsBound)
 }
 
 /*****************************************************************************/
-/* Functions for the randomized scheduler                                    */
+/* Functions for the random solver                                           */
 /*****************************************************************************/
 vector<Assignment> randomlyScheduleInterval(int iIID, SolutionInfo &si)
 {
@@ -1051,10 +1040,12 @@ vector<Assignment> randomlyScheduleInterval(int iIID, SolutionInfo &si)
 
     // DEBUG:
     if (conf.printIntervalInfo) {
-        *conf.outstream << ",\n      \" RAND: Interval " << std::setw(3)
-                        << iIID << " [" << std::setw(3) << sdIID << ","
-                        << std::setw(3) << edIID << "], #SD=" << std::setw(3)
-                        << panelsInInterval - numMultiDayPanels
+        *conf.outstream << ",\n      \" "
+                        << ((conf.alg == GREEDY) ? " GRD" : "RAND")
+                        << ": Interval " << std::setw(3) << iIID << " ["
+                        << std::setw(3) << sdIID << ","
+                        << std::setw(3) << edIID << "], #SD="
+                        << std::setw(3) << panelsInInterval - numMultiDayPanels
                         << ", #MD=" << std::setw(3) << numMultiDayPanels
                         << ", Scheduled = " << std::setw(3)
                         <<  bestIntAssignments.size() << "/" << std::setw(3)
@@ -1086,21 +1077,21 @@ vector<Assignment> rnd_scheduleForInterval(int iIID)
         }
     }
 
-    // DEBUG:
-    //printRemPanelsForInterval(iIID, intRemPanels);
-    //printRemRoomsForInterval(iIID, intRemRooms);
-
     // Schedule panels for each date in the interval, one by one
     vector<Assignment> intAssignments;
     while (remDateIIDs.size() > 0) {
         // Select a random date from the ones remaining
-        //int rnd = randomGen.IRandom(0, remDateIIDs.size() - 1);
         int rnd = randomInt(0, remDateIIDs.size() - 1);
-        int dateIID = remDateIIDs[rnd];
+        int dIID = remDateIIDs[rnd];
 
         // Construct a schedule for the date
-        append(intAssignments,
-               rnd_scheduleForDate(dateIID, iIID, intRemPanels, intRemRooms));
+        if (conf.alg == GREEDY) {
+            append(intAssignments,
+                   grd_scheduleForDate(dIID, iIID, intRemPanels, intRemRooms));
+        } else { // conf.alg == RANDOM, or EXACT when it resorts to rand solver
+            append(intAssignments,
+                   rnd_scheduleForDate(dIID, iIID, intRemPanels, intRemRooms));
+        }
 
         // Now remove date from further consideration
         remDateIIDs[rnd] = remDateIIDs.back();
@@ -1117,6 +1108,9 @@ vector<Assignment> rnd_scheduleForDate(int dIID, int iIID,
     int sdIID = dateIntervals[iIID].first;
     int edIID = dateIntervals[iIID].second;
 
+    // Copy over the panel IIDs for this date, since we will modify the
+    // intRemPanels structure as we make assignments and therefore do not want
+    // to iterate over it
     vector<int> remPanelIIDs;
     for (int i = 0; i < intRemPanels[dIID-sdIID].size(); ++i) {
         remPanelIIDs.push_back(intRemPanels[dIID-sdIID][i]);
@@ -1125,7 +1119,6 @@ vector<Assignment> rnd_scheduleForDate(int dIID, int iIID,
     vector<Assignment> dateAssignments;
     while (remPanelIIDs.size() > 0) {
         // Select a random panel from the ones remaining
-        //int rnd = randomGen.IRandom(0, remPanelIIDs.size() - 1);
         int rnd = randomInt(0, remPanelIIDs.size() - 1);
         int nextPanelIID = remPanelIIDs[rnd];
 
@@ -1156,11 +1149,10 @@ Assignment rnd_schedulePanel(int pIID, int iIID,
     int edIID = dateIntervals[iIID].second;
     int psdIID = panels[pIID].startingDateIID;
 
-    // Find all rooms that can satisfy this panel request. Note that this
-    // panel was selected because one of its requested dates was chosen;
-    // however, we do not need to start scheduling it based on that particular
-    // date. Instead, we just want to schedule it across the number of days it
-    // requires.
+    // Find all rooms that can satisfy this panel. Note that this panel was
+    // selected because one of its requested dates was chosen; however, we do
+    // not need to start scheduling it based on that particular date. Instead,
+    // we just want to schedule it across the number of days it requires.
     vector<int> potentialRoomIIDs =
         computePotentialRoomsForPanel(pIID, iIID, intRemRooms);
 
@@ -1172,14 +1164,13 @@ Assignment rnd_schedulePanel(int pIID, int iIID,
     // remaining panels and rooms, and use that information to intelligently
     // choose a room for this panel.
     if (potentialRoomIIDs.size() > 0) {
-        //int rnd = randomGen.IRandom(0, potentialRoomIIDs.size() - 1);
         int rnd = randomInt(0, potentialRoomIIDs.size() - 1);
         int rIID = potentialRoomIIDs[rnd];
 
-        // Remove panel and rooms from remaining panels and rooms lists for
-        // the appropriate days
-        for (int i = 0; i < panels[pIID].numberOfDays; ++i) {
-            int dateInd = psdIID - sdIID + i;
+        // Remove panel and rooms from remaining panels and rooms lists for the
+        // appropriate days
+        for (int l = 0; l < panels[pIID].numberOfDays; ++l) {
+            int dateInd = psdIID - sdIID + l;
             int pInd = vec_index(intRemPanels[dateInd], pIID);
             int rInd = vec_index(intRemRooms[dateInd], rIID);
             if ((pInd < 0) || (rInd < 0)) {
@@ -1198,65 +1189,74 @@ Assignment rnd_schedulePanel(int pIID, int iIID,
 }
 
 /*****************************************************************************/
-/* Greedy Solver Functions                                                   */
+/* Functions for the greedy solver                                           */
 /*****************************************************************************/
-vector<Assignment> greedilyScheduleInterval(int iIID, SolutionInfo &si)
+// NOTE: The greedy solver uses similar functionality to the random solver for
+// selecting and processing dates in the interval at random. While the random
+// solver randomly schedules all panels for the selected date, the greedy
+// solver will attempt to schedule as many panels as possible before moving
+// onto the next date.
+vector<Assignment> grd_scheduleForDate(int dIID, int iIID,
+                                       vector<vector<int> > &intRemPanels,
+                                       vector<vector<int> > &intRemRooms)
 {
     int sdIID = dateIntervals[iIID].first;
     int edIID = dateIntervals[iIID].second;
 
-    // Initialize the available rooms by date
-    vector<vector<int> > remRooms;
-    for (int dIID = sdIID; dIID <= edIID; ++dIID) {
-        remRooms.push_back(vector<int>());
-        for (int i = 0; i < dates[dIID].availableRooms.size(); ++i) {
-            remRooms[dIID-sdIID].push_back(dates[dIID].availableRooms[i]);
-        }
+    vector<Assignment> dateAssignments;
+    vector<int> &lPanels = intRemPanels[dIID-sdIID];
+    vector<int> &lRooms = intRemRooms[dIID-sdIID];
+    // Skip this date if we have no panels or no rooms available
+    if ((lPanels.size() == 0) || (lRooms.size() == 0)) {
+        return dateAssignments;
     }
 
-    // Now greedily schedule the panels starting on each date of the interval
-    vector<Assignment> assignments;
-    for (int dIID = sdIID; dIID <= edIID; ++dIID) {
-        // Only look at requests that start on this day
-        vector<int> lPanels;
-        for (int i = 0; i < dates[dIID].panelRequests.size(); ++i) {
-            int pIID = dates[dIID].panelRequests[i];
-            if (panels[pIID].startingDateIID == dIID) {
-                lPanels.push_back(pIID);
-            }
-        }
-        // Skip this date if we have no panels or no rooms available
-        if ((lPanels.size() == 0) || (remRooms[dIID-sdIID].size() == 0)) {
-            continue;
-        }
-
-        // TODO: DEBUG THIS
-        // Need to make sure that rooms are available for the dates in question
-        // This is NOT working properly at the moment...
-        vector<Assignment> dateAssignments =
-            scheduleSingleDayRequests(lPanels, remRooms[dIID-sdIID]);
-
-        // Update the remaining rooms on subsequent days given the assignments
-        // for this date
-        for (int i = 0; i < dateAssignments.size(); ++i) {
-            assignments.push_back(dateAssignments[i]); // Add to list
-            int pIID = assignments.back().panelIID;
-            int rIID = assignments.back().roomIID;
-            for (int l = 0; l < panels[pIID].numberOfDays; ++l) {
-                int rrInd = panels[pIID].startingDateIID - sdIID + l;
-                // Remove the room from the available rooms on each of the
-                // days that the panel requires
-                for (int j = 0; j < remRooms[rrInd].size(); ++j) {
-                    if (rIID == remRooms[rrInd][j]) {
-                        remRooms[rrInd][j] = remRooms[rrInd].back();
-                        remRooms[rrInd].pop_back();
-                        break;
-                    }
-                }
+    // First construct the rooms where each panel can potentially be
+    // assigned. Note that we have to check the room availabilities on
+    // other dates as well in order to properly handle multi-day panels.
+    vector<vector<int> > validRooms(lPanels.size());
+    for (int i = 0; i < lPanels.size(); ++i) {
+        vector<int> potentialRoomIIDs =
+            computePotentialRoomsForPanel(lPanels[i], iIID, intRemRooms);
+        for (int j = 0; j < lRooms.size(); ++j) {
+            if (contains(potentialRoomIIDs, lRooms[j])) {
+                validRooms[i].push_back(j);
             }
         }
     }
-    return assignments;
+    // Make a direct call to the push-relabel algorithm
+    vector<pair<int, int> > localAssignments =
+        pushRelabel(lPanels.size(), lRooms.size(), validRooms);
+
+    // Update the remaining panels and rooms in intRemRooms and intRemPanels
+    // data structures based on the push-relabel assignments to ensure that
+    // subsequent dates have the correct information.
+    // Note that we need to convert from the IDs used by the push-relabel
+    // algorithm to the internal IDs when processing the assignments.
+    for (int i = 0; i < localAssignments.size(); ++i) {
+       dateAssignments.push_back(
+            Assignment(lPanels[localAssignments[i].first],
+                       lRooms[localAssignments[i].second]));
+        int pIID = dateAssignments.back().panelIID;
+        int rIID = dateAssignments.back().roomIID;
+
+        // Remove panel and rooms from remaining panels and rooms lists for the
+        // appropriate days
+        for (int l = 0; l < panels[pIID].numberOfDays; ++l) {
+            int dateInd = panels[pIID].startingDateIID - sdIID + l;
+            int pInd = vec_index(intRemPanels[dateInd], pIID);
+            int rInd = vec_index(intRemRooms[dateInd], rIID);
+            if ((pInd < 0) || (rInd < 0)) {
+                printf("ERROR: Missing pIID or rIID from vector\n"); exit(-1);
+            }
+            intRemPanels[dateInd][pInd] = intRemPanels[dateInd].back();
+            intRemPanels[dateInd].pop_back();
+            intRemRooms[dateInd][rInd] = intRemRooms[dateInd].back();
+            intRemRooms[dateInd].pop_back();
+        }
+    }
+
+    return dateAssignments;
 }
 
 /*****************************************************************************/
@@ -1272,10 +1272,10 @@ vector<Assignment> scheduleSingleDayRequests(const vector<int>& lPanels,
         return vector<Assignment>();
     }
 
-    // Compute the list of available rooms that are valid for each request
+    // Compute the list of available rooms that are valid for each panel
     // validRooms[i] is a list of rooms that meet the requirements for panel i
 	//
-	// TODO - there may be some rooms that are invalid for all requests.  Right
+	// TODO: There may be some rooms that are invalid for all panels.  Right
 	// now we're just passing these in to push_relabel.  It's probably more
 	// efficient to not pass them in, but it makes indexing more complicated,
 	// and I don't see this being a big bottleneck...
@@ -1285,7 +1285,7 @@ vector<Assignment> scheduleSingleDayRequests(const vector<int>& lPanels,
         for (int j = 0; j < lRooms.size(); ++j)
         {
             // Internally, the push-relabel code uses room IDs
-            // [0..lRooms.size()) and request IDs [0..lPanels.size()), so just
+            // [0..lRooms.size()) and panel IDs [0..lPanels.size()), so just
             // push_back indices
             if (roomSatisfiesPanelRequirements(lRooms[j], lPanels[i]))
                 validRooms[i].push_back(j);
@@ -1403,70 +1403,72 @@ void printAssignments(vector<Assignment> &assignments)
 
 void printSchedule(vector<Assignment> &assignments)
 {
-    // TODO: Revise this to print output using streams
+    if (strlen(conf.scheduleFile) <= 0) {
+        return; // No schedule file specified
+    }
     vector<vector<Assignment> > schedule = makeSchedule(assignments);
-    FILE *FOS = fopen(conf.scheduleFile, "w");
+    std::ofstream ofs;
+    ofs.open(conf.scheduleFile, std::ofstream::out);
 
-    fprintf(FOS, "Room Name,");
+    ofs << "Room Name,";
     for (int dIID = 0; dIID < dates.size(); ++dIID) {
-        //fprintf(FOS, "%d [%s],", dIID, dates[dIID].fName.c_str());
-        fprintf(FOS, "%s,", dates[dIID].fName.c_str());
+        ofs << dates[dIID].fName << ",";
     }
-    fprintf(FOS, "\n");
+    ofs << std::endl;
 
-    fprintf(FOS, "Total Panels,");
+    ofs << "Total Panels,";
     for (int dIID = 0; dIID < dates.size(); ++dIID) {
-        fprintf(FOS, "%d,", schedule[dIID].size());
+        ofs << schedule[dIID].size() << ",";
     }
-    fprintf(FOS, "\n");
+    ofs << std::endl;
 
     for (int rIID = 0; rIID < rooms.size(); ++rIID) {
-        //fprintf(FOS, "\"%d [%s]\",", rooms[rIID].EID, rooms[rIID].name.c_str());
-        fprintf(FOS, "\"%s\",", rooms[rIID].name.c_str());
+        ofs << "\"" << rooms[rIID].name << "\",";
         for (int dIID = 0; dIID < dates.size(); ++dIID) {
             for (int i = 0; i < schedule[dIID].size(); ++i) {
                 int assnRoomIID = schedule[dIID][i].roomIID;
                 if (assnRoomIID == rIID) {
                     int pIID = schedule[dIID][i].panelIID;
-                    //fprintf(FOS, "\"%d [%s]\"", panels[pIID].EID,
-                    //                           panels[pIID].name.c_str());
-                    //fprintf(FOS, "\"%d\"", panels[pIID].EID);
-                    fprintf(FOS, "\"%s\"", panels[pIID].name.c_str());
+                    ofs << "\"" << panels[pIID].name << "\"";
                     break;
                 }
             }
-            fprintf(FOS, ",");
+            ofs << ",";
         }
-        fprintf(FOS, "\n");
+        ofs << std::endl;
     }
-    fclose(FOS);
+    ofs.close();
     return;
 }
 
 void printUnscheduled(vector<Assignment> &assignments)
 {
-    FILE *FOU = fopen(conf.unscheduledFile, "w");
-    fprintf(FOU, "Unscheduled,\n");
+    if (strlen(conf.unscheduledFile) <= 0) {
+        return; // No unscheduled panels file specified
+    }
+    std::ofstream ofs;
+    ofs.open(conf.unscheduledFile, std::ofstream::out);
+    ofs << "Unscheduled," << std::endl;
     for (int pIID = 0; pIID < panels.size(); ++pIID) {
         bool foundPIID = false;
-        // TODO: Make this search more efficient...
+        // This search could be made more efficient, but not likely to be an
+        // issue in practice
         for (int i = 0; i < assignments.size(); ++i) {
             if (assignments[i].panelIID == pIID) { foundPIID = true; break; }
         }
         if (!foundPIID) {
-            fprintf(FOU, "%d,%s,%s,%d,%s,%d",
-                panels[pIID].EID, panels[pIID].name.c_str(),
-                panels[pIID].pd.c_str(), panels[pIID].numberOfDays,
-                dates[panels[pIID].startingDateIID].fName.c_str(),
-                panels[pIID].size);
+            ofs << panels[pIID].EID << "," << panels[pIID].name << ","
+                << panels[pIID].pd << "," << panels[pIID].numberOfDays << ","
+                << dates[panels[pIID].startingDateIID].fName << ","
+                << panels[pIID].size;
             for (int j = 0; j < panels[pIID].roomRequirements.size(); ++j) {
-                fprintf(FOU, ",%c", panels[pIID].roomRequirements[j]?'Y':'N');
+                ofs << "," << (panels[pIID].roomRequirements[j] ? "Y" : "N");
             }
-            fprintf(FOU, "\n");
+            ofs << std::endl;
         }
     }
-    fprintf(FOU, "\n");
-    fclose(FOU);
+    ofs << std::endl;
+    ofs.close();
     return;
 }
 
@@ -1564,9 +1566,21 @@ void readCSV(const char *inFile, vector<vector<string> > &records)
     return;
 }
 
+// Parses strings in a variety of formats into date objects.
+// Currently handles the following strings:
+//  MM/DD/YY            e.g., 01/01/12          for January 1st, 2012
+//  M/D/Y               e.g., 1/1/12            for January 1st, 2012
+//                            1/14/1             for January 14th, 2001
+//  DAY, MMM DD, YY     where DAY = {Mon, Tue, Wed, Thr, Fri, Sat, Sun}
+//                            MMM = {Jan, Feb, Mar, Apr, May, Jun
+//                                   Jul, Aug, Sep, Oct, Nov, Dec}
+//                      e.g., Sun, Jan 01, 12   for January 1st, 2012
+//                            Sun, Jan 14, 01   for January 14th, 2001
+//  MMM DD, YY          e.g., Jan 01, 12        for January 1st, 2012
+//                            Jan 14, 01        for January 14th, 2001
+// TODO: Expand on the formats accepted here...
 yymmdd parseDate(string dateString)
 {
-    // TODO: Expand on the formats accepted here...
     // DEBUG:
     //printf("Parsing date: %s\n", dateString.c_str()); fflush(stdout);
     yymmdd temp;
@@ -1604,19 +1618,31 @@ yymmdd parseDate(string dateString)
 
 int monthNameToNumber(string monthName)
 {
-    if      (monthName.compare("Jan") == 0) { return  1; }
-    else if (monthName.compare("Feb") == 0) { return  2; }
-    else if (monthName.compare("Mar") == 0) { return  3; }
-    else if (monthName.compare("Apr") == 0) { return  4; }
-    else if (monthName.compare("May") == 0) { return  5; }
-    else if (monthName.compare("Jun") == 0) { return  6; }
-    else if (monthName.compare("Jul") == 0) { return  7; }
-    else if (monthName.compare("Aug") == 0) { return  8; }
-    else if (monthName.compare("Sep") == 0) { return  9; }
-    else if (monthName.compare("Oct") == 0) { return 10; }
-    else if (monthName.compare("Nov") == 0) { return 11; }
-    else if (monthName.compare("Dec") == 0) { return 12; }
-    else                                    { return -1; }
+    if      ((monthName.compare("Jan") == 0) ||
+             (monthName.compare("JAN") == 0))   { return  1; }
+    else if ((monthName.compare("Feb") == 0) ||
+             (monthName.compare("FEB") == 0))   { return  2; }
+    else if ((monthName.compare("Mar") == 0) ||
+             (monthName.compare("MAR") == 0))   { return  3; }
+    else if ((monthName.compare("Apr") == 0) ||
+             (monthName.compare("APR") == 0))   { return  4; }
+    else if ((monthName.compare("May") == 0) ||
+             (monthName.compare("MAY") == 0))   { return  5; }
+    else if ((monthName.compare("Jun") == 0) ||
+             (monthName.compare("JUN") == 0))   { return  6; }
+    else if ((monthName.compare("Jul") == 0) ||
+             (monthName.compare("JUL") == 0))   { return  7; }
+    else if ((monthName.compare("Aug") == 0) ||
+             (monthName.compare("AUG") == 0))   { return  8; }
+    else if ((monthName.compare("Sep") == 0) ||
+             (monthName.compare("SEP") == 0))   { return  9; }
+    else if ((monthName.compare("Oct") == 0) ||
+             (monthName.compare("OCT") == 0))   { return 10; }
+    else if ((monthName.compare("Nov") == 0) ||
+             (monthName.compare("NOV") == 0))   { return 11; }
+    else if ((monthName.compare("Dec") == 0) ||
+             (monthName.compare("DEC") == 0))   { return 12; }
+    else                                        { return -1; }
 }
 
 int lookupDateIID(string dateString)

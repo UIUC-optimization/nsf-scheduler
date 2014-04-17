@@ -286,7 +286,9 @@ Assignment rnd_schedulePanel(int pIID, int iIID,
                              vector<vector<int> > &intRemPanels,
                              vector<vector<int> > &intRemRooms);
 
-vector<Assignment> greedilyScheduleInterval(int iIID, SolutionInfo &si);
+vector<Assignment> grd_scheduleForDate(int dIID, int iIID,
+                                       vector<vector<int> > &intRemPanels,
+                                       vector<vector<int> > &intRemRooms);
 
 // Helper functions
 vector<Assignment> scheduleSingleDayRequests(const vector<int>& lPanels,

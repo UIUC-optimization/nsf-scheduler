@@ -5,7 +5,7 @@ LDFLAGS = -lm
 
 PROG = scheduler
 DEBUG_PROG = scheduler-debug
-HDRS = scheduler.h   push_relabel.h
+HDRS = scheduler.h   push_relabel.h   util.h
 SRCS = scheduler.cpp push_relabel.cpp
 
 ## This incantation says that the object files
