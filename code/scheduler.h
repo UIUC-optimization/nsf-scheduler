@@ -18,6 +18,7 @@ using std::vector;
 #include <unordered_map>
 using std::unordered_map;
 #include <iostream>
+#include <utility>
 
 enum Algorithm { EXACT, RANDOM, GREEDY };
 
@@ -42,6 +43,8 @@ struct Config {
         printIntervalInfo = false;
         ignoreRoomCapacities = false;
         ignorePanelReqs = false;
+
+        attemptShiftScheduling = false;
     }
 
     // TODO: Maybe change these to strings?
@@ -69,6 +72,7 @@ struct Config {
     bool printIntervalInfo;
     bool ignoreRoomCapacities;
     bool ignorePanelReqs;
+    bool attemptShiftScheduling;
 };
 
 // TODO: Figure out a better way to handle dates
@@ -82,6 +86,14 @@ struct Assignment {
     Assignment(int pIID, int rIID) : panelIID(pIID), roomIID(rIID) {}
     int panelIID;
     int roomIID;
+};
+
+struct ShiftedAssignment {
+    ShiftedAssignment(int pIID, int rIID, int s) :
+        panelIID(pIID), roomIID(rIID), shift(s) {}
+    int panelIID;
+    int roomIID;
+    int shift;
 };
 
 struct Room {
@@ -185,6 +197,9 @@ struct SolutionInfo {
 
         numOptIntervals = 0;
         numCompleteIntervals = 0;
+
+        numShiftScheduledPanels = 0;
+        numShiftSatisfiedPanelReqs = 0;
     }
     // Technically we don't need these here, but it makes output a bit easier
     int numPanels;
@@ -198,6 +213,10 @@ struct SolutionInfo {
 
     int numOptIntervals;
     int numCompleteIntervals;
+
+    int numShiftScheduledPanels;
+    int numShiftSatisfiedPanelReqs;
+    vector<std::pair<int, int> > numScheduledByShift;
 };
 
 struct BranchInfo {
@@ -295,6 +314,15 @@ vector<Assignment> scheduleSingleDayRequests(const vector<int>& lPanels,
                                              const vector<int>& lRooms);
 vector<int> computePotentialRoomsForPanel(int pIID, int iIID,
                                           vector<vector<int> > &intRemRooms);
+vector<int> computePotentialRoomsForPanel(int pIID, int shift,
+                                    vector<vector<bool> > &roomAvailabilities);
+
+// Additional post-processing functions
+vector<ShiftedAssignment> shiftScheduleRemainder(SolutionInfo &si,
+                                            vector<Assignment> &assignments);
+ShiftedAssignment shiftSchedulePanel(int pIID, int shift,
+                                    vector<vector<bool> > &roomAvailabilities);
+
 
 // Print / output functions
 void printRooms();

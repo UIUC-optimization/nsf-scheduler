@@ -71,6 +71,14 @@ int main(int argc, const char **argv)
     // Conduct feasibility post-test on final schedule
     feasibilityPostTest(assignments);
 
+
+    // Attempt to shift unscheduled panels by single days in either direction
+    if ((assignments.size() < panels.size()) && (conf.attemptShiftScheduling)){
+        vector<ShiftedAssignment> shiftedAssignments =
+                                    shiftScheduleRemainder(si, assignments);
+        // TODO: Incorporate these into the printed schedule
+    }
+
     // Output results
     //printAssignments(assignments);
     if (strlen(conf.scheduleFile) > 0) {
@@ -118,6 +126,8 @@ void parseArgs(int argc, const char **argv)
             ++i; conf.RANDOM_numAttempts = atoi(*(argv + i));
         } else if (std::strcmp(*(argv + i), "-p") == 0) {
             conf.printIntervalInfo = true;
+        } else if (std::strcmp(*(argv + i), "-ss") == 0) {
+            conf.attemptShiftScheduling = true;
 // These options are for testing purposes only...
         } else if (std::strcmp(*(argv + i), "-ic") == 0) {
             conf.ignoreRoomCapacities = true;
@@ -339,13 +349,13 @@ void initializeOutputStream()
 void outputProblemInfo()
 {
     *conf.outstream << "{";
-    *conf.outstream << " \n  \"roomsFile\": \"" << conf.roomsFile << "\""
+    *conf.outstream <<  "\n  \"roomsFile\": \"" << conf.roomsFile << "\""
                     << ",\n  \"datesFile\": \"" << conf.datesFile << "\""
                     << ",\n  \"panelsFile\": \"" << conf.panelsFile << "\""
                     << ",\n  \"outputFile\": \"" << conf.outputFile << "\""
                     << ",\n  \"scheduleFile\": \"" << conf.scheduleFile << "\"";
     *conf.outstream << ",\n  \"problemInfo\": {"
-                    << " \n    \"numRooms\": " << rooms.size()
+                    <<  "\n    \"numRooms\": " << rooms.size()
                     << ",\n    \"numDates\": " << dates.size()
                     << ",\n    \"numPanels\": " << panels.size()
                     << ",\n    \"numIntervals\": " << dateIntervals.size();
@@ -371,7 +381,7 @@ void outputProblemInfo()
                     << ",\n    \"numIntervalsWithPanels\": "
                     << numIntervalsWithPanels
                     << ",\n    \"maxPanelRequestsPerDay\": " << maxPanelsPerDay
-                    << " \n  }";
+                    <<  "\n  }";
     return;
 }
 
@@ -380,23 +390,37 @@ void outputSolutionInfo(SolutionInfo &si)
     // Print stats on best assignment found.
     *conf.outstream << ",\n  \"solutionInfo\": {"
             // Info on Scheduled Panels
-                    << " \n    \"numPanels\": " << panels.size()
+                    <<  "\n    \"numPanels\": " << panels.size()
                     << ",\n    \"scheduledPanelsGlobalUB\": "
                     << si.scheduledPanelsGlobalUB
                     << ",\n    \"numScheduledPanels\": "
                     << si.numScheduledPanels
+                    << ",\n    \"numShiftScheduledPanels\": "
+                    << si.numShiftScheduledPanels
             // Info on Satisfied Panel Requests
                     << ",\n    \"numPanelReqs\": " << si.numPanelReqs
                     << ",\n    \"satisfiedPanelReqsGlobalUB\": "
                     << si.satisfiedPanelReqsGlobalUB
                     << ",\n    \"numSatisfiedPanelReqs\": "
                     << si.numSatisfiedPanelReqs
+                    << ",\n    \"numShiftSatisfiedPanelReqs\": "
+                    << si.numShiftSatisfiedPanelReqs
             // Info on Interval Completeness and Optimality
                     << ",\n    \"numCompleteIntervals\": "
                     << si.numCompleteIntervals
                     << ",\n    \"numOptimalIntervals\": " << si.numOptIntervals
-                    << " \n  }";
-    *conf.outstream << "\n}\n\n";
+            // Info on shift scheduled panels
+                    << ",\n    \"scheduledPanelsByShift\": {"
+                    <<  "\n      \"0\" : " << si.numScheduledPanels;
+    for (int i = 0; i < si.numScheduledByShift.size(); ++i) {
+        int shift = si.numScheduledByShift[i].first;
+        int count = si.numScheduledByShift[i].second;
+        *conf.outstream << ",\n      \"" << shift << "\" : " << count;
+    }
+    // Finalize
+    *conf.outstream <<  "\n    }"
+                    <<  "\n  }"
+                    <<  "\n}\n\n";
     return;
 }
 
@@ -418,11 +442,11 @@ void feasibilityPreTest()
 {
     // DEBUG:
     *conf.outstream << ",\n  \"feasibilityPreTest\": ["
-                    << " \n    \"Notes\"";
+                    <<  "\n    \"Notes\"";
     checkNumberOfPanelsPerDate();
     checkPanelRequirements();
     checkBoundsPerDate();
-    *conf.outstream << " \n  ]";
+    *conf.outstream <<  "\n  ]";
     return;
 }
 
@@ -522,7 +546,7 @@ void feasibilityPostTest(vector<Assignment> &assignments)
 {
     // DEBUG:
     *conf.outstream << ",\n  \"feasibilityPostTest\": ["
-                    << " \n    \"Notes\"";
+                    <<  "\n    \"Notes\"";
 
     vector<vector<Assignment> > schedule = makeSchedule(assignments);
 
@@ -580,7 +604,7 @@ void feasibilityPostTest(vector<Assignment> &assignments)
             unscheduledPanels.pop_back();
         }
     }
-    *conf.outstream << " \n  ]";
+    *conf.outstream <<  "\n  ]";
     return;
 }
 
@@ -602,18 +626,18 @@ vector<Assignment> solve(SolutionInfo &si)
     // Solve each of the date intervals separately, combining as we go
     vector<Assignment> assignments;
     if (conf.alg == EXACT) {
-        *conf.outstream << " \n    \"algorithm\": \"Exact\""
+        *conf.outstream <<  "\n    \"algorithm\": \"Exact\""
                         << ",\n    \"details\": ["
-                        << " \n      \"Notes\"";
+                        <<  "\n      \"Notes\"";
         for (int iIID = 0; iIID < dateIntervals.size(); ++iIID) {
             append(assignments, exactlyScheduleInterval(iIID, si));
         }
     } else if ((conf.alg == RANDOM) || (conf.alg == GREEDY)) {
-        *conf.outstream << " \n    \"algorithm\": \""
+        *conf.outstream <<  "\n    \"algorithm\": \""
                         << ((conf.alg == RANDOM) ? "Random" : "Greedy")
                         << "-" << conf.RANDOM_numAttempts << "\""
                         << ",\n    \"details\": ["
-                        << " \n      \"Notes\"";
+                        <<  "\n      \"Notes\"";
         for (int iIID = 0; iIID < dateIntervals.size(); ++iIID) {
             append(assignments, randomlyScheduleInterval(iIID, si));
         }
@@ -631,9 +655,9 @@ vector<Assignment> solve(SolutionInfo &si)
         si.numSatisfiedPanelReqs += panels[schedPIID].numberOfDays;
     }
 
-    *conf.outstream << " \n    ]"
+    *conf.outstream <<  "\n    ]"
                     << ",\n    \"totalTime\": " << totalTime
-                    << " \n  }";
+                    <<  "\n  }";
 
     return assignments;
 }
@@ -1335,6 +1359,195 @@ vector<int> computePotentialRoomsForPanel(int pIID, int iIID,
         }
     }
     return potentialRoomIIDs;
+}
+
+vector<int> computePotentialRoomsForPanel(int pIID, int shift,
+                                    vector<vector<bool> > &roomAvailabilities)
+{
+    int psdIID = panels[pIID].startingDateIID + shift;
+    // Look at all the rooms that are still available on the first (shifted)
+    // day of this panel. If a room satisfies the size and feature
+    // requirements of the panel, and if that room is still available on all
+    // of the days the panel needs, then it can be added to the list.
+    vector<int> potentialRoomIIDs;
+    for (int rIID = 0; rIID < rooms.size(); ++rIID) {
+        if (roomSatisfiesPanelRequirements(rIID, pIID)) {
+            bool roomIsAvailable = true;
+            for (int l = 0; l < panels[pIID].numberOfDays; ++l) {
+                roomIsAvailable &= roomAvailabilities[psdIID+l][rIID];
+            }
+            if (roomIsAvailable) {
+                potentialRoomIIDs.push_back(rIID);
+            }
+        }
+    }
+    return potentialRoomIIDs;
+}
+
+/*****************************************************************************/
+/* Additional post-processing functions                                      */
+/*****************************************************************************/
+vector<ShiftedAssignment> shiftScheduleRemainder(SolutionInfo &si,
+                                            vector<Assignment> &assignments)
+{
+    vector<ShiftedAssignment> shiftedAssignments;
+
+    // Identify the panels that were unable to be scheduled
+    vector<int> unscheduledPanels;
+    for (int pIID = 0; pIID < panels.size(); ++pIID) {
+        bool foundPIID = false;
+        // This search could be made more efficient, but not likely to be an
+        // issue in practice
+        for (int i = 0; i < assignments.size(); ++i) {
+            if (assignments[i].panelIID == pIID) { foundPIID = true; break; }
+        }
+        if (!foundPIID) {
+            unscheduledPanels.push_back(pIID);
+        }
+    }
+
+    // Check for early termination due to no unscheduled panels
+    if (unscheduledPanels.size() < 1) { return shiftedAssignments; }
+
+    // Create the room/date availabilities matrix
+    vector<vector<Assignment> > schedule = makeSchedule(assignments);
+    vector<vector<bool> > roomAvailabilities;
+    for (int dIID = 0; dIID < dates.size(); ++dIID) {
+        roomAvailabilities.push_back(vector<bool>());
+        for (int rIID = 0; rIID < rooms.size(); ++rIID) {
+            // First check that the room was initially available on the date
+            bool roomInitiallyAvailable = false;
+            for (int i = 0; i < dates[dIID].availableRooms.size(); ++i) {
+                if (dates[dIID].availableRooms[i] == rIID) {
+                    roomInitiallyAvailable = true;
+                }
+            }
+
+            // See if the room is used on this date by a current assignment
+            bool roomUsedOnDate = false;
+            for (int i = 0; i < schedule[dIID].size(); ++i) {
+                int assnRoomIID = schedule[dIID][i].roomIID;
+                if (assnRoomIID == rIID) {
+                    roomUsedOnDate = true; break;
+                }
+            }
+
+            bool roomAvailable = roomInitiallyAvailable && !roomUsedOnDate;
+            roomAvailabilities[dIID].push_back(roomAvailable);
+        }
+    }
+
+    int shiftVals[] = { 1, -1, 2, -2, 3, -3 };
+    for (int i = 0; i < 6; ++i) {
+        int shift = shiftVals[i];
+        vector<int> unsuccessfullyShiftedPanels;
+        while (unscheduledPanels.size() > 0) {
+            // Find a random unscheduled panel and try to schedule it
+            int rnd = randomInt(0, unscheduledPanels.size() - 1);
+            int pIID = unscheduledPanels[rnd];
+
+            ShiftedAssignment sa =
+                shiftSchedulePanel(pIID, shift, roomAvailabilities);
+
+            unscheduledPanels[rnd] = unscheduledPanels.back();
+            unscheduledPanels.pop_back();
+
+            if (sa.roomIID >= 0) {
+                shiftedAssignments.push_back(sa);
+            } else { // Failed to schedule panel, so try with different shift
+                unsuccessfullyShiftedPanels.push_back(pIID);
+            }
+        }
+
+        // Copy the unsuccessfully scheduled panels back to the vector of
+        // unscheduled panels for another attempt with a different shift
+        for (int j = 0; j < unsuccessfullyShiftedPanels.size(); ++j) {
+            unscheduledPanels.push_back(unsuccessfullyShiftedPanels[j]);
+        }
+    }
+
+    // Finally, update SolutionInfo values based on shift-scheduled panels
+    si.numShiftScheduledPanels = shiftedAssignments.size();
+    for (int i = 0; i < shiftedAssignments.size(); ++i) {
+        int pIID = shiftedAssignments[i].panelIID;
+        si.numShiftSatisfiedPanelReqs += panels[pIID].numberOfDays;
+        // Update the number of scheduled panels by shift count
+        int shift = shiftedAssignments[i].shift;
+        bool foundShift = false;
+        for (int j = 0; j < si.numScheduledByShift.size(); ++j) {
+            if (si.numScheduledByShift[j].first == shift) {
+                si.numScheduledByShift[j].second += 1;
+                foundShift = true; break;
+            }
+        }
+        if (!foundShift) {
+            si.numScheduledByShift.push_back(std::make_pair(shift, 1));
+        }
+    }
+
+    return shiftedAssignments;
+}
+
+ShiftedAssignment shiftSchedulePanel(int pIID, int shift,
+                                  vector<vector<bool> > &roomAvailabilities)
+{
+    ShiftedAssignment sa(pIID, -1, shift);
+
+    // Compute the old and new (shifted) panel starting dates
+    int oldSDIID = panels[pIID].startingDateIID;
+    int newSDIID = oldSDIID + shift;
+
+    // First check for a shift date that moves (part of) the panel outside of
+    // the date window
+    if ((newSDIID < 0) ||
+        (newSDIID + panels[pIID].numberOfDays > dates.size())) {
+        return sa;
+    }
+    // Now check that some room was initially available on this date
+    if (dates[newSDIID].availableRooms.size() == 0) {
+        return sa;
+    }
+
+    // Count 'empty' days in between original start date and shifted
+    // start date. If two or more, assume we have shifted through a
+    // weekend, which we do not want to allow.
+    // (NOTE: We only need to worry about this when we have a shift of +/- 3,
+    // but this allows us to potentially handle higher shifts as well.)
+    int emptyDaysBetween = 0;
+    if (newSDIID < oldSDIID) {
+        for (int dIID = newSDIID + 1; dIID < oldSDIID; ++dIID) {
+            if (dates[dIID].availableRooms.size() == 0) {
+                ++emptyDaysBetween;
+            }
+        }
+    } else {
+        for (int dIID = oldSDIID + 1; dIID < newSDIID; ++dIID) {
+            if (dates[dIID].availableRooms.size() == 0) {
+                ++emptyDaysBetween;
+            }
+        }
+    }
+    if (emptyDaysBetween >= 2) {
+        return sa;
+    }
+
+    // Now determine which rooms are available for the panel
+    vector<int> potentialRoomIIDs =
+            computePotentialRoomsForPanel(pIID, shift, roomAvailabilities);
+    if (potentialRoomIIDs.size() == 0) {
+        return sa;
+    } // else there is at least one room in which this panel can be scheduled
+
+    int rnd = randomInt(0, potentialRoomIIDs.size() - 1);
+    int rIID = potentialRoomIIDs[rnd];
+    sa.roomIID = rIID;
+
+    // Update the room availabilities
+    for (int l = 0; l < panels[pIID].numberOfDays; ++l) {
+        roomAvailabilities[newSDIID+l][rIID] = false;
+    }
+
+    return sa;
 }
 
 /*****************************************************************************/
