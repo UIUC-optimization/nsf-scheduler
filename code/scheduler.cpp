@@ -128,6 +128,8 @@ void parseArgs(int argc, const char **argv)
             conf.printIntervalInfo = true;
         } else if (std::strcmp(*(argv + i), "-ss") == 0) {
             conf.attemptShiftScheduling = true;
+        } else if (std::strcmp(*(argv + i), "-pff") == 0) {
+            ++i; conf.panelFileFormat = atoi(*(argv + i));
 // These options are for testing purposes only...
         } else if (std::strcmp(*(argv + i), "-ic") == 0) {
             conf.ignoreRoomCapacities = true;
@@ -274,12 +276,18 @@ void initializePanels()
         panels[i-1].IID = i-1;
         panels[i-1].EID = atoi(panelRecord[0].c_str());
         panels[i-1].name = panelRecord[1];
-        panels[i-1].pd = panelRecord[2];
-        panels[i-1].numberOfDays = atoi(panelRecord[3].c_str());
-        panels[i-1].startingDateIID = lookupDateIID(panelRecord[4].c_str());
-        panels[i-1].size = atoi(panelRecord[5].c_str());
+        panels[i-1].directorate = panelRecord[2];
+        int nxt = 3;
+        if (conf.panelFileFormat == 1) {
+            panels[i-1].organizer = panelRecord[3];
+            panels[i-1].organizerID = atoi(panelRecord[4].c_str());
+            nxt = 5;
+        } // else using panel file format 0
+        panels[i-1].numberOfDays = atoi(panelRecord[nxt+0].c_str());
+        panels[i-1].startingDateIID = lookupDateIID(panelRecord[nxt+1].c_str());
+        panels[i-1].size = atoi(panelRecord[nxt+2].c_str());
         // Remaining elements are binary room features
-        for (int j = 6; j < panelRecord.size(); ++j) {
+        for (int j = nxt+3; j < panelRecord.size(); ++j) {
             panels[i-1].roomRequirements.push_back((panelRecord[j][0] == 'Y'));
         }
         // Now ensure that panel has at least the same number of requirements
@@ -446,6 +454,7 @@ void feasibilityPreTest()
     checkNumberOfPanelsPerDate();
     checkPanelRequirements();
     checkBoundsPerDate();
+    checkOrganizerConflicts();
     *conf.outstream <<  "\n  ]";
     return;
 }
@@ -506,6 +515,34 @@ void checkBoundsPerDate()
     if (infeasSum > 0) {
         *conf.outstream << ",\n    \"INFEAS: Sum of Unsatisfiable Panel "
                         << "Requests is " << infeasSum << "\"";
+    }
+    return;
+}
+
+void checkOrganizerConflicts()
+{
+    if (conf.panelFileFormat < 1) { return; } // No organizers specified
+    // For each date, ensure that no panel requests have the same organizer
+    for (int dIID = 0; dIID < dates.size(); ++dIID) {
+        vector<string> organizers;
+        for (int i = 0; i < dates[dIID].panelRequests.size(); ++i) {
+            int pIID = dates[dIID].panelRequests[i];
+            string organizer = panels[pIID].organizer;
+            if (organizer.length() < 1) { continue; }
+            // Check for organizer existing in the list of organizers
+            bool foundOrganizer = false;
+            for (int j = 0; j < organizers.size(); ++j) {
+                if (organizer.compare(organizers[j]) == 0) {
+                    *conf.outstream << ",\n    \"INFEAS: Organizer "
+                                    << organizer
+                                    << " has multiple panels on Date "
+                                    << dIID << "[" << dates[dIID].fName << "]";
+                }
+            }
+            if (!foundOrganizer) {
+                organizers.push_back(organizer);
+            }
+        }
     }
     return;
 }
@@ -1542,6 +1579,9 @@ ShiftedAssignment shiftSchedulePanel(int pIID, int shift,
     int rIID = potentialRoomIIDs[rnd];
     sa.roomIID = rIID;
 
+    // TODO: Revise this to ensure that no two panels with the same organizer
+    // can be placed on the same date.
+
     // Update the room availabilities
     for (int l = 0; l < panels[pIID].numberOfDays; ++l) {
         roomAvailabilities[newSDIID+l][rIID] = false;
@@ -1583,9 +1623,13 @@ void printPanels()
 {
     printf("*** Panels ***\n");
     for (int pIID = 0; pIID < panels.size(); ++pIID) {
-        printf("Panel %d [%s], [%s], Len=%d, StartDateID=%d, "
-               "Size=%d, Requirements: ", panels[pIID].EID,
-            panels[pIID].name.c_str(), panels[pIID].pd.c_str(),
+        printf("Panel %d [%s], Dir=[%s], ", panels[pIID].EID,
+                panels[pIID].name.c_str(), panels[pIID].directorate.c_str());
+        if (conf.panelFileFormat == 1) {
+            printf("Org=[%s], OrgID=%d", panels[pIID].organizer.c_str(),
+                                         panels[pIID].organizerID);
+        }
+        printf("Len=%d, StartDateID=%d, Size=%d, Requirements: ",
             panels[pIID].numberOfDays, panels[pIID].startingDateIID,
             panels[pIID].size);
         for (int i = 0; i < panels[pIID].roomRequirements.size(); ++i) {
@@ -1671,7 +1715,12 @@ void printUnscheduled(vector<Assignment> &assignments)
         }
         if (!foundPIID) {
             ofs << panels[pIID].EID << "," << panels[pIID].name << ","
-                << panels[pIID].pd << "," << panels[pIID].numberOfDays << ","
+                << panels[pIID].directorate << ",";
+            if (conf.panelFileFormat == 1) {
+                ofs << panels[pIID].organizer << ","
+                    << panels[pIID].organizerID << ",";
+            }
+            ofs << panels[pIID].numberOfDays << ","
                 << dates[panels[pIID].startingDateIID].fName << ","
                 << panels[pIID].size;
             for (int j = 0; j < panels[pIID].roomRequirements.size(); ++j) {

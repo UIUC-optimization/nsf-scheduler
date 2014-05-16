@@ -28,6 +28,12 @@ enum Algorithm { EXACT, RANDOM, GREEDY };
 struct Config {
     Config() {
         // Default Settings
+        printIntervalInfo = false;
+        ignoreRoomCapacities = false;
+        ignorePanelReqs = false;
+        attemptShiftScheduling = false;
+        panelFileFormat = 0;
+
         alg = EXACT;
 
         EXACT_computeBounds = true;
@@ -40,11 +46,6 @@ struct Config {
 
         RANDOM_numAttempts = 50;
 
-        printIntervalInfo = false;
-        ignoreRoomCapacities = false;
-        ignorePanelReqs = false;
-
-        attemptShiftScheduling = false;
     }
 
     // TODO: Maybe change these to strings?
@@ -59,6 +60,13 @@ struct Config {
     // Output stream
     std::ostream *outstream;
 
+    // Other global settings
+    bool printIntervalInfo;
+    bool ignoreRoomCapacities;
+    bool ignorePanelReqs;
+    bool attemptShiftScheduling;
+    int panelFileFormat;
+
     // Algorithm Settings
     Algorithm alg;
     bool EXACT_computeBounds;
@@ -69,10 +77,6 @@ struct Config {
     double EXACT_timeLimitOneBranch;
     double EXACT_timeLimitZeroBranch;
     int RANDOM_numAttempts;
-    bool printIntervalInfo;
-    bool ignoreRoomCapacities;
-    bool ignorePanelReqs;
-    bool attemptShiftScheduling;
 };
 
 // TODO: Figure out a better way to handle dates
@@ -123,7 +127,9 @@ struct Panel {
     int IID;    // Internal ID used by program, equals index in vector
     int EID;    // External ID used in spreadsheets - can be any integer
     string name;
-    string pd;
+    string directorate;
+    string organizer;
+    int organizerID;
     int numberOfDays;
     int startingDateIID;
 
@@ -278,6 +284,7 @@ void feasibilityPreTest();
 void checkNumberOfPanelsPerDate();
 void checkPanelRequirements();
 void checkBoundsPerDate();
+void checkOrganizerConflicts();
 
 bool roomSatisfiesPanelRequirements(int rIID, int pIID);
 bool roomAvailableForRequiredDays(int rIID, int pIID);
