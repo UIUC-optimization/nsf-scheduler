@@ -32,7 +32,8 @@ struct Config {
         ignoreRoomCapacities = false;
         ignorePanelReqs = false;
         attemptShiftScheduling = false;
-        panelFileFormat = 0;
+        checkStartDateDoubleBooking = false;
+        panelsIncludeOrganizer = false;
 
         alg = EXACT;
 
@@ -45,13 +46,13 @@ struct Config {
         EXACT_timeLimitZeroBranch = 10;
 
         RANDOM_numAttempts = 50;
-
     }
 
     // TODO: Maybe change these to strings?
     // Input and output files
     const char *roomsFile;
     const char *datesFile;
+    const char *organizersFile;
     const char *panelsFile;
     const char *outputFile;
     const char *scheduleFile;
@@ -65,7 +66,8 @@ struct Config {
     bool ignoreRoomCapacities;
     bool ignorePanelReqs;
     bool attemptShiftScheduling;
-    int panelFileFormat;
+    bool checkStartDateDoubleBooking;
+    bool panelsIncludeOrganizer;
 
     // Algorithm Settings
     Algorithm alg;
@@ -123,19 +125,26 @@ struct Date {
     vector<int> panelRequests;
 };
 
+struct Organizer {
+    int IID;
+    string name;
+    vector<string> organizerKeys;
+};
+
 struct Panel {
     int IID;    // Internal ID used by program, equals index in vector
     int EID;    // External ID used in spreadsheets - can be any integer
     string name;
     string directorate;
-    string organizer;
-    int organizerID;
+    string organizer;   // Optional, not used by program
+    string organizerKey;
     int numberOfDays;
     int startingDateIID;
-
     int size;
     vector<bool> roomRequirements; // Binary vector of room requirements
-    //vector<int> roomRequirements; // Binary vector of room requirements
+
+    // Auxiliary data that is not part of the input file
+    int organizerIID;
 };
 
 /*****************************************************************************/
@@ -269,6 +278,7 @@ void printUsageAndExit(const char *argv0);
 // Initialization functions
 void initializeRooms();
 void initializeDates();
+void initializeOrganizers();
 void initializePanels();
 void initializeDateIntervals();
 void initializeDateIntervalsHelper(int sdIID, int cdIID, int edIID);
@@ -290,6 +300,10 @@ bool roomSatisfiesPanelRequirements(int rIID, int pIID);
 bool roomAvailableForRequiredDays(int rIID, int pIID);
 
 void feasibilityPostTest(vector<Assignment> &assignments);
+bool checkRoomsForPanels(vector<Assignment> &assignments);
+void checkForDuplicatePanels(vector<Assignment> &assignments);
+void checkRoomUsage(vector<vector<Assignment> > &schedule);
+void checkOrganizerDoubleBooking(vector<vector<Assignment> > &schedule);
 
 // Solver functions
 vector<Assignment> solve(SolutionInfo &si);
@@ -328,7 +342,8 @@ vector<int> computePotentialRoomsForPanel(int pIID, int shift,
 vector<ShiftedAssignment> shiftScheduleRemainder(SolutionInfo &si,
                                             vector<Assignment> &assignments);
 ShiftedAssignment shiftSchedulePanel(int pIID, int shift,
-                                    vector<vector<bool> > &roomAvailabilities);
+                                vector<vector<bool> > &roomAvailabilities,
+                                vector<vector<bool> > &organizerAvailabilities);
 
 
 // Print / output functions

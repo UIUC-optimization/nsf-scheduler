@@ -3,7 +3,8 @@
 /* Date: 2013-08-29                                                          */
 /* File: scheduler.cpp                                                       */
 /* Description: Runs a scheduling algorithm for NSF panels.                  */
-/* Usage: ./scheduler <roomsFile> <datesFile> <panelsFile> [other options]   */
+/* Usage: ./scheduler <roomsFile> <datesFile> <organizersFile> <panelsFile>  */
+/*                    [other options]                                        */
 /*                                                                           */
 /* Copyright (c) 2013, 2014 University of Illinois Board of Trustees.        */
 /* Published under the University of Illinois/NCSA Open Source License.      */
@@ -32,9 +33,13 @@ using std::find;
 // Global Variables
 vector<Room> rooms;
 vector<Date> dates;
+vector<Organizer> organizers;
 vector<Panel> panels;
+
 Config conf;
 vector<pair<int,int> > dateIntervals;
+
+unordered_map<string, int> orgKey_orgIID_map;
 
 int main(int argc, const char **argv)
 {
@@ -43,6 +48,7 @@ int main(int argc, const char **argv)
     // Initialize
     initializeRooms();
     initializeDates();
+    initializeOrganizers();
     initializePanels();
     initializeDateIntervals();
 
@@ -99,17 +105,19 @@ int main(int argc, const char **argv)
 /*****************************************************************************/
 void parseArgs(int argc, const char **argv)
 {
-    if (argc < 4) {
+    int NUM_REQUIRED_ARGS = 4;
+    if (argc <= NUM_REQUIRED_ARGS) {
         printUsageAndExit(argv[0]);
     }
     conf.roomsFile = argv[1];
     conf.datesFile = argv[2];
-    conf.panelsFile = argv[3];
+    conf.organizersFile = argv[3];
+    conf.panelsFile = argv[4];
     conf.outputFile = "";       // Default, can be overridden by flag
     conf.scheduleFile = "";     // Default, can be overridden by flag
     conf.unscheduledFile = "";  // Default, can be overridden by flag
     // Now handle any additional options after required inputs
-    for (int i = 4; i < argc; ++i) {
+    for (int i = NUM_REQUIRED_ARGS + 1; i < argc; ++i) {
         if (std::strcmp(*(argv + i), "-o") == 0) {
             ++i; conf.outputFile = *(argv + i);
         } else if (std::strcmp(*(argv + i), "-s") == 0) {
@@ -128,8 +136,6 @@ void parseArgs(int argc, const char **argv)
             conf.printIntervalInfo = true;
         } else if (std::strcmp(*(argv + i), "-ss") == 0) {
             conf.attemptShiftScheduling = true;
-        } else if (std::strcmp(*(argv + i), "-pff") == 0) {
-            ++i; conf.panelFileFormat = atoi(*(argv + i));
 // These options are for testing purposes only...
         } else if (std::strcmp(*(argv + i), "-ic") == 0) {
             conf.ignoreRoomCapacities = true;
@@ -145,7 +151,7 @@ void parseArgs(int argc, const char **argv)
 void printUsageAndExit(const char *argv0)
 {
     fprintf(stderr,
-        "Usage: %s <rooms file> <dates file> <panels file>\n"
+        "Usage: %s <rooms file> <dates file> <organizers file> <panels file>\n"
         "       [-o <output file>]      (File to print output info (JSON))\n"
         "       [-s <schedule file>]    (File to print the schedule (CSV))\n"
         "       [-u <unscheduled file>] (File to list unsched. panels (CSV))\n"
@@ -166,24 +172,31 @@ void initializeRooms()
 {
     vector<vector<string> > roomRecords;
     readCSV(conf.roomsFile, roomRecords);
-    rooms.resize(roomRecords.size() - 1); // First record is the headers
     int maxNumberOfFeatures = 0;
+    // First row is header information
+    vector<string> &header = roomRecords[0];
     for (int i = 1; i < roomRecords.size(); ++i) {
         vector<string> &roomRecord = roomRecords[i];
-        if (roomRecord.size() < 3) {
+        if (roomRecord.size() < 1) {
+            continue; // Skip blank lines
+        } else if (roomRecord.size() < 3) {
+            // Error if a record has some but not all information
             printf("ERROR: Room record %d is missing information!\n", i-1);
             exit(-1);
         }
-        rooms[i-1].IID = i-1;
-        rooms[i-1].EID = atoi(roomRecord[0].c_str());
-        rooms[i-1].name = roomRecord[1];
-        rooms[i-1].capacity = atoi(roomRecord[2].c_str());
+        rooms.push_back(Room());
+        Room &room = rooms.back();
+        int j = 0;
+        room.IID = rooms.size() - 1;
+        room.EID = atoi(roomRecord[j++].c_str());
+        room.name = roomRecord[j++];
+        room.capacity = atoi(roomRecord[j++].c_str());
         // Remaining elements are binary room features
-        for (int j = 3; j < roomRecord.size(); ++j) {
-            rooms[i-1].roomFeatures.push_back((roomRecord[j][0] == 'Y'));
+        for (; j < roomRecord.size(); ++j) {
+            room.roomFeatures.push_back((roomRecord[j][0] == 'Y'));
         }
-        if (maxNumberOfFeatures < rooms[i-1].roomFeatures.size()) {
-            maxNumberOfFeatures = rooms[i-1].roomFeatures.size();
+        if (maxNumberOfFeatures < room.roomFeatures.size()) {
+            maxNumberOfFeatures = room.roomFeatures.size();
         }
     }
     // Ensure all rooms have the same number of features (initializing empty
@@ -201,25 +214,27 @@ void initializeDates()
     vector<vector<string> > dateRecords;
     readCSV(conf.datesFile, dateRecords);
 
-    // Process the date labels
+    // Process the date labels (first row)
     vector<string> &dateLabels = dateRecords[0];
-    dates.resize(dateLabels.size() - 1); // First record is list of dates
     for (int j = 1; j < dateLabels.size(); ++j) {
-        dates[j-1].IID = j-1;
-        dates[j-1].name = dateLabels[j];
-        yymmdd temp = parseDate(dates[j-1].name);
+        dates.push_back(Date());
+        Date &date = dates.back();
+        date.IID = dates.size() - 1;
+        date.name = dateLabels[j];
+        yymmdd temp = parseDate(date.name);
         // DEBUG:
         //printf("%s is: %d [%d-%d-%d]\n", dates[j-1].name.c_str(), j-1,
         //        temp.yy, temp.mm, temp.dd);
-        dates[j-1].year = temp.yy;
-        dates[j-1].month = temp.mm;
-        dates[j-1].day = temp.dd;
+        date.year = temp.yy;
+        date.month = temp.mm;
+        date.day = temp.dd;
         std::stringstream ss;
-        ss << std::setw(2) << std::setfill('0') << dates[j-1].month << "/";
-        ss << std::setw(2) << std::setfill('0') << dates[j-1].day << "/";
-        ss << std::setw(2) << std::setfill('0') << dates[j-1].year-2000;
-        dates[j-1].fName = ss.str();
+        ss << std::setw(2) << std::setfill('0') << date.month << "/";
+        ss << std::setw(2) << std::setfill('0') << date.day << "/";
+        ss << std::setw(2) << std::setfill('0') << date.year-2000;
+        date.fName = ss.str();
     }
+
     // The first (non-header) row contains the default room settings.
     vector<string> &defaultRoomAvailabilities = dateRecords[1];
     for (int j = 1; j < defaultRoomAvailabilities.size(); ++j) {
@@ -231,6 +246,7 @@ void initializeDates()
             }
         }
     }
+
     // Now handle the room-specific availabilities
     for (int i = 2; i < dateRecords.size(); ++i) {
         vector<string> &dateRecord = dateRecords[i];
@@ -262,49 +278,107 @@ void initializeDates()
     return;
 }
 
+void initializeOrganizers()
+{
+    vector<vector<string> > organizerRecords;
+    readCSV(conf.organizersFile, organizerRecords);
+    // First row is header information
+    vector<string> &header = organizerRecords[0];
+    for (int i = 1; i < organizerRecords.size(); ++i) {
+        vector<string> &organizerRecord = organizerRecords[i];
+        if (organizerRecord.size() < 1) {
+            continue; // Skip blank lines in input file
+        } else if (organizerRecord.size() < 2) {
+            printf("Organizer record %d is missing information.\n", i-1);
+            exit(-1);
+        }
+        organizers.push_back(Organizer());
+        Organizer &organizer = organizers.back();
+        organizer.IID = organizers.size() - 1;
+        organizer.name = organizerRecord[0];
+        // Add the organizer keys to the struct
+        for (int j = 1; j < organizerRecord.size(); ++j) {
+            string &key = organizerRecord[j];
+            if (key.empty()) { continue; }
+            organizer.organizerKeys.push_back(key);
+            if (orgKey_orgIID_map.find(key) == orgKey_orgIID_map.end()) {
+                // Key doesn't exist yet in map, so store it
+                orgKey_orgIID_map[key] = organizer.IID;
+            } else {
+                // Key already exists in map, meaning two organizers have the
+                // same key; this creates problems, so exit with error message
+                printf("Organizer record %d has duplicate key %s\n", i-1,
+                    key.c_str());
+                exit(-1);
+            }
+        }
+    }
+
+    return;
+}
+
 void initializePanels()
 {
     vector<vector<string> > panelRecords;
     readCSV(conf.panelsFile, panelRecords);
-    panels.resize(panelRecords.size() - 1); // First record is the headers
+    // First row is header information
+    vector<string> &header = panelRecords[0];
+    conf.panelsIncludeOrganizer = (header[3].compare("Organizer") == 0);
+
     for (int i = 1; i < panelRecords.size(); ++i) {
         vector<string> &panelRecord = panelRecords[i];
-        if (panelRecord.size() < 6) {
+        if (panelRecord.size() < 1) {
+            continue; // Skip blank lines in input file
+        } else if (panelRecord.size() < 8) {
             printf("Panel record %d is missing information.\n", i-1);
             exit(-1);
         }
-        panels[i-1].IID = i-1;
-        panels[i-1].EID = atoi(panelRecord[0].c_str());
-        panels[i-1].name = panelRecord[1];
-        panels[i-1].directorate = panelRecord[2];
-        int nxt = 3;
-        if (conf.panelFileFormat == 1) {
-            panels[i-1].organizer = panelRecord[3];
-            panels[i-1].organizerID = atoi(panelRecord[4].c_str());
-            nxt = 5;
-        } // else using panel file format 0
-        panels[i-1].numberOfDays = atoi(panelRecord[nxt+0].c_str());
-        panels[i-1].startingDateIID = lookupDateIID(panelRecord[nxt+1].c_str());
-        panels[i-1].size = atoi(panelRecord[nxt+2].c_str());
+        panels.push_back(Panel());
+        Panel &panel = panels.back();
+        int j = 0;
+        panel.IID = panels.size() - 1;
+        panel.EID = atoi(panelRecord[j++].c_str());
+        panel.name = panelRecord[j++];
+        panel.directorate = panelRecord[j++];
+        if (conf.panelsIncludeOrganizer) {;
+            panel.organizer = panelRecord[j++];
+        } else {
+            panel.organizer = "";
+        }
+        panel.organizerKey = panelRecord[j++];
+        // Find the organizer for this panel, if one is specified
+        if (panel.organizerKey.empty()) {
+            panel.organizerIID = -1;
+        } else {
+            auto pos = orgKey_orgIID_map.find(panel.organizerKey);
+            if (pos == orgKey_orgIID_map.end()) {
+                printf("Panel %d has unknown organizer key %s\n",
+                        panel.EID, panel.organizerKey.c_str());
+                exit(-1);
+            } // else
+            panel.organizerIID = pos->second;
+        }
+        panel.numberOfDays = atoi(panelRecord[j++].c_str());
+        panel.startingDateIID = lookupDateIID(panelRecord[j++].c_str());
+        panel.size = atoi(panelRecord[j++].c_str());
         // Remaining elements are binary room features
-        for (int j = nxt+3; j < panelRecord.size(); ++j) {
-            panels[i-1].roomRequirements.push_back((panelRecord[j][0] == 'Y'));
+        for (; j < panelRecord.size(); ++j) {
+            panel.roomRequirements.push_back((panelRecord[j][0] == 'Y'));
         }
         // Now ensure that panel has at least the same number of requirements
         // as the features of the rooms
-        if (panels[i-1].roomRequirements.size() < rooms[0].roomFeatures.size()){
-            panels[i-1].roomRequirements.resize(rooms[0].roomFeatures.size(),
-                                                false);
+        if (panel.roomRequirements.size() < rooms[0].roomFeatures.size()){
+            panel.roomRequirements.resize(rooms[0].roomFeatures.size(), false);
         }
         // Now add panel to dates that it needs
-        int sdIID = panels[i-1].startingDateIID;
-        if ((sdIID < 0) || (sdIID + panels[i-1].numberOfDays > dates.size())) {
+        int sdIID = panel.startingDateIID;
+        if ((sdIID < 0) || (sdIID + panel.numberOfDays > dates.size())) {
             printf("ERROR: Panel %d does not have a valid starting date\n",
-                panels[i-1].EID);
+                panel.EID);
             exit(-1);
         }
-        for (int dIID = sdIID; dIID < sdIID+panels[i-1].numberOfDays; ++dIID) {
-            dates[dIID].panelRequests.push_back(panels[i-1].IID);
+        for (int dIID = sdIID; dIID < sdIID + panel.numberOfDays; ++dIID) {
+            dates[dIID].panelRequests.push_back(panel.IID);
         }
     }
     return;
@@ -448,13 +522,14 @@ void finalizeOutputStream()
 /*****************************************************************************/
 void feasibilityPreTest()
 {
-    // DEBUG:
     *conf.outstream << ",\n  \"feasibilityPreTest\": ["
                     <<  "\n    \"Notes\"";
     checkNumberOfPanelsPerDate();
     checkPanelRequirements();
     checkBoundsPerDate();
-    checkOrganizerConflicts();
+    if (conf.checkStartDateDoubleBooking) {
+        checkOrganizerConflicts();
+    }
     *conf.outstream <<  "\n  ]";
     return;
 }
@@ -521,26 +596,25 @@ void checkBoundsPerDate()
 
 void checkOrganizerConflicts()
 {
-    if (conf.panelFileFormat < 1) { return; } // No organizers specified
     // For each date, ensure that no panel requests have the same organizer
     for (int dIID = 0; dIID < dates.size(); ++dIID) {
-        vector<string> organizers;
+        vector<int> numPanelsByOrganizerIID(organizers.size(), 0);
+        // For each panel, look up the organizer by key and update counts
         for (int i = 0; i < dates[dIID].panelRequests.size(); ++i) {
             int pIID = dates[dIID].panelRequests[i];
-            string organizer = panels[pIID].organizer;
-            if (organizer.length() < 1) { continue; }
-            // Check for organizer existing in the list of organizers
-            bool foundOrganizer = false;
-            for (int j = 0; j < organizers.size(); ++j) {
-                if (organizer.compare(organizers[j]) == 0) {
-                    *conf.outstream << ",\n    \"INFEAS: Organizer "
-                                    << organizer
-                                    << " has multiple panels on Date "
-                                    << dIID << "[" << dates[dIID].fName << "]";
-                }
-            }
-            if (!foundOrganizer) {
-                organizers.push_back(organizer);
+            int oIID = panels[pIID].organizerIID;
+            // Ignore panels with unspecified organizer
+            if (oIID < 0) { continue; }
+            numPanelsByOrganizerIID[oIID] += 1;
+        }
+        // Now check for organizers with multiple panels on the date
+        for (int oIID = 0; oIID < organizers.size(); ++oIID) {
+            if (numPanelsByOrganizerIID[oIID] > 1) {
+                *conf.outstream << ",\n    \"INFEAS: Organizer "
+                                << organizers[oIID].name << " has "
+                                << numPanelsByOrganizerIID[oIID]
+                                << " panels on Date " << dIID << " ["
+                                << dates[dIID].fName << "]\"";
             }
         }
     }
@@ -581,36 +655,82 @@ bool roomAvailableForRequiredDays(int rIID, int pIID)
 
 void feasibilityPostTest(vector<Assignment> &assignments)
 {
-    // DEBUG:
     *conf.outstream << ",\n  \"feasibilityPostTest\": ["
                     <<  "\n    \"Notes\"";
+    bool foundOutOfBoundsAssignment = checkRoomsForPanels(assignments);
+    if (!foundOutOfBoundsAssignment) {
+        checkForDuplicatePanels(assignments);
+        vector<vector<Assignment> > schedule = makeSchedule(assignments);
+        checkRoomUsage(schedule);
+        if (conf.checkStartDateDoubleBooking) {
+            checkOrganizerDoubleBooking(schedule);
+        }
+    }
+    *conf.outstream <<  "\n  ]";
+    return;
+}
 
-    vector<vector<Assignment> > schedule = makeSchedule(assignments);
+bool checkRoomsForPanels(vector<Assignment> &assignments)
+{
+    // Check that all assignments are valid (within bounds) and that the rooms
+    // used actually do satisfy the panel requirements
+    bool foundOutOfBoundsAssignment = false;
+    for (int i = 0; i < assignments.size(); ++i) {
+        int rIID = assignments[i].roomIID;
+        int pIID = assignments[i].panelIID;
+        if ((rIID < 0) || (rIID >= rooms.size())) {
+            *conf.outstream << ",\n    \"ERROR: Assignment has invalid room "
+                            << "IID " << rIID << "\"";
+            foundOutOfBoundsAssignment = true;
+            break;
+        }
+        if ((pIID < 0) || (pIID >= panels.size())) {
+            *conf.outstream << ",\n    \"ERROR: Assignment has invalid panel "
+                            << "IID " << pIID << "\"";
+            foundOutOfBoundsAssignment = true;
+            break;
+        }
+        // Check if room satisfies panel requirements
+        if (!roomSatisfiesPanelRequirements(rIID, pIID)) {
+            *conf.outstream << ",\n    \"ERROR: Room " << rooms[rIID].EID
+                            << " does not satisfy the requirements of "
+                            << "Panel " << panels[pIID].EID << "\"";
+        }
+    }
+    return foundOutOfBoundsAssignment;
+}
 
+void checkForDuplicatePanels(vector<Assignment> &assignments)
+{
+    // Check for multiple assignments with the same panel
+    vector<int> assignmentCountsByPanel(panels.size(), 0);
+    for (int i = 0; i < assignments.size(); ++i) {
+        int pIID = assignments[i].panelIID;
+        assignmentCountsByPanel[pIID] += 1;
+    }
+    for (int pIID = 0; pIID < panels.size(); ++pIID) {
+        if (assignmentCountsByPanel[pIID] > 1) {
+            *conf.outstream << ",\n    \"ERROR: Panel " << panels[pIID].EID
+                            << " has multiple assignments\"";
+        }
+    }
+    return;
+}
+
+void checkRoomUsage(vector<vector<Assignment> > &schedule)
+{
+    // Ensure that each room is used at most once on each date
     for (int dIID = 0; dIID < dates.size(); ++dIID) {
         // Initialize vector of all rooms available on this date
         vector<int> unusedRooms;
         for (int i = 0; i < dates[dIID].availableRooms.size(); ++i) {
             unusedRooms.push_back(dates[dIID].availableRooms[i]);
         }
-        // Initialize vector of all panels requested for this date
-        vector<int> unscheduledPanels;
-        for (int i = 0; i < dates[dIID].panelRequests.size(); ++i) {
-            unscheduledPanels.push_back(dates[dIID].panelRequests[i]);
-        }
         // Now iterate through the assignments for this date, removing rooms
-        // from the list of total rooms and panels from the list of panel
-        // requests as we see them
+        // from the list of total rooms as we see them
         for (int i = 0; i < schedule[dIID].size(); ++i) {
             int rIID = schedule[dIID][i].roomIID;
             int pIID = schedule[dIID][i].panelIID;
-            // Check if room satisfies panel requirements
-            if (!roomSatisfiesPanelRequirements(rIID, pIID)) {
-                *conf.outstream << ",\n    \"ERROR: Room " << rooms[rIID].EID
-                                << " does not satisfy the requirements of "
-                                << "Panel " << panels[pIID].EID << "\"";
-                break;
-            }
             // Check if room used in assignment is actually available on
             // this date (and has not been used already)
             int ind = -1;
@@ -621,27 +741,38 @@ void feasibilityPostTest(vector<Assignment> &assignments)
                 *conf.outstream << ",\n    \"ERROR: Assignment uses "
                                 << "unavailable room (" << panels[pIID].EID
                                 << " -> " << rooms[rIID].EID << ")\"";
-                break;
             }
             unusedRooms[ind] = unusedRooms.back();
             unusedRooms.pop_back();
-            // Check if panel in assignment was actually for this date
-            // (and has not been assigned to another room on the same date)
-            ind = -1;
-            for (int j = 0; j < unscheduledPanels.size(); ++j) {
-                if (unscheduledPanels[j] == pIID) { ind = j; break; }
-            }
-            if (ind < 0) {
-                *conf.outstream << ",\n    \"ERROR: Assignment uses "
-                                << "unrequested panel (" << panels[pIID].EID
-                                << " -> " << rooms[rIID].EID << ")\"";
-                break;
-            }
-            unscheduledPanels[ind] = unscheduledPanels.back();
-            unscheduledPanels.pop_back();
         }
     }
-    *conf.outstream <<  "\n  ]";
+    return;
+}
+
+void checkOrganizerDoubleBooking(vector<vector<Assignment> > &schedule)
+{
+    for (int dIID = 0; dIID < dates.size(); ++dIID) {
+        // Initialize vector of scheduled panel counts by organizer IID
+        vector<int> numPanelsByOrganizerIID(organizers.size(), 0);
+        for (int i = 0; i < schedule[dIID].size(); ++i) {
+            int pIID = schedule[dIID][i].panelIID;
+            // Look up the organizer and increment the panel count
+            int oIID = panels[pIID].organizerIID;
+            if (oIID >= 0) {
+                numPanelsByOrganizerIID[oIID] += 1;
+            }
+        }
+        // Check for double-booking of an organizer (i.e., one organizer with
+        // two or more panels scheduled on the same date)
+        for (int oIID = 0; oIID < organizers.size(); ++oIID) {
+            if (numPanelsByOrganizerIID[oIID] > 1) {
+                *conf.outstream << ",\n    \"ERROR: Schedule has multiple "
+                                << "panels for Organizer "
+                                << organizers[oIID].name << " on Date "
+                                << dIID << " [" << dates[dIID].fName << "]\"";
+            }
+        }
+    }
     return;
 }
 
@@ -1367,6 +1498,11 @@ vector<Assignment> scheduleSingleDayRequests(const vector<int>& lPanels,
     return assignments;
 }
 
+// Returns the roomIIDs of all rooms that the given panel can be scheduled in,
+// based on which rooms are available at the current stage of scheduling.
+// Does NOT check for double-booking of a panel organizer. That is, if two
+// panels on the same date have the same organizer, this will still let the
+// two panels be scheduled.
 vector<int> computePotentialRoomsForPanel(int pIID, int iIID,
                                           vector<vector<int> > &intRemRooms)
 {
@@ -1446,31 +1582,36 @@ vector<ShiftedAssignment> shiftScheduleRemainder(SolutionInfo &si,
     // Check for early termination due to no unscheduled panels
     if (unscheduledPanels.size() < 1) { return shiftedAssignments; }
 
-    // Create the room/date availabilities matrix
-    vector<vector<Assignment> > schedule = makeSchedule(assignments);
+    // Create the room/date and organizer/date availabilities matrices
     vector<vector<bool> > roomAvailabilities;
+    vector<vector<bool> > organizerAvailabilities;
     for (int dIID = 0; dIID < dates.size(); ++dIID) {
-        roomAvailabilities.push_back(vector<bool>());
-        for (int rIID = 0; rIID < rooms.size(); ++rIID) {
-            // First check that the room was initially available on the date
-            bool roomInitiallyAvailable = false;
-            for (int i = 0; i < dates[dIID].availableRooms.size(); ++i) {
-                if (dates[dIID].availableRooms[i] == rIID) {
-                    roomInitiallyAvailable = true;
-                }
-            }
+        roomAvailabilities.push_back(vector<bool>(rooms.size(), false));
+        organizerAvailabilities.push_back(vector<bool>(organizers.size(),true));
+        // Mark all rooms that are initially available
+        for (int i = 0; i < dates[dIID].availableRooms.size(); ++i) {
+            int rIID = dates[dIID].availableRooms[i];
+            roomAvailabilities[dIID][rIID] = true;
+        }
+    }
 
-            // See if the room is used on this date by a current assignment
-            bool roomUsedOnDate = false;
-            for (int i = 0; i < schedule[dIID].size(); ++i) {
-                int assnRoomIID = schedule[dIID][i].roomIID;
-                if (assnRoomIID == rIID) {
-                    roomUsedOnDate = true; break;
-                }
+    // Check the assignments and mark the used rooms and organizers as
+    // unavailable on the corresponding dates
+    for (int i = 0; i < assignments.size(); ++i) {
+        int rIID = assignments[i].roomIID;
+        int pIID = assignments[i].panelIID;
+        int oIID = panels[pIID].organizerIID;
+        int sdIID = panels[pIID].startingDateIID;
+        // Block off room on the panel's dates
+        for (int l = 0; l < panels[pIID].numberOfDays; ++l) {
+            roomAvailabilities[sdIID+l][rIID] = false;
+        }
+        // Block off organizer on the panel's dates; for organizers that were
+        // double-booked initially, this will block them off multiple times
+        if (oIID >= 0) {
+            for (int l = 0; l < panels[pIID].numberOfDays; ++l) {
+                organizerAvailabilities[sdIID+l][oIID] = false;
             }
-
-            bool roomAvailable = roomInitiallyAvailable && !roomUsedOnDate;
-            roomAvailabilities[dIID].push_back(roomAvailable);
         }
     }
 
@@ -1484,7 +1625,8 @@ vector<ShiftedAssignment> shiftScheduleRemainder(SolutionInfo &si,
             int pIID = unscheduledPanels[rnd];
 
             ShiftedAssignment sa =
-                shiftSchedulePanel(pIID, shift, roomAvailabilities);
+                shiftSchedulePanel(pIID, shift, roomAvailabilities,
+                                                organizerAvailabilities);
 
             unscheduledPanels[rnd] = unscheduledPanels.back();
             unscheduledPanels.pop_back();
@@ -1526,7 +1668,8 @@ vector<ShiftedAssignment> shiftScheduleRemainder(SolutionInfo &si,
 }
 
 ShiftedAssignment shiftSchedulePanel(int pIID, int shift,
-                                  vector<vector<bool> > &roomAvailabilities)
+                                vector<vector<bool> > &roomAvailabilities,
+                                vector<vector<bool> > &organizerAvailabilities)
 {
     ShiftedAssignment sa(pIID, -1, shift);
 
@@ -1568,6 +1711,17 @@ ShiftedAssignment shiftSchedulePanel(int pIID, int shift,
         return sa;
     }
 
+    // Check that the panel at this shift would not create a double-booking
+    // conflict for the organizer, if there is one
+    int oIID = panels[pIID].organizerIID;
+    if (oIID >= 0) {
+        for (int l = 0; l < panels[pIID].numberOfDays; ++l) {
+            if (!organizerAvailabilities[newSDIID+l][oIID]) {
+                return sa;
+            }
+        }
+    }
+
     // Now determine which rooms are available for the panel
     vector<int> potentialRoomIIDs =
             computePotentialRoomsForPanel(pIID, shift, roomAvailabilities);
@@ -1579,12 +1733,15 @@ ShiftedAssignment shiftSchedulePanel(int pIID, int shift,
     int rIID = potentialRoomIIDs[rnd];
     sa.roomIID = rIID;
 
-    // TODO: Revise this to ensure that no two panels with the same organizer
-    // can be placed on the same date.
-
     // Update the room availabilities
     for (int l = 0; l < panels[pIID].numberOfDays; ++l) {
         roomAvailabilities[newSDIID+l][rIID] = false;
+    }
+    // Update the organizer availabilities, if there is an organizer
+    if (oIID >= 0) {
+        for (int l = 0; l < panels[pIID].numberOfDays; ++l) {
+            organizerAvailabilities[newSDIID+l][oIID] = false;
+        }
     }
 
     return sa;
@@ -1623,17 +1780,16 @@ void printPanels()
 {
     printf("*** Panels ***\n");
     for (int pIID = 0; pIID < panels.size(); ++pIID) {
-        printf("Panel %d [%s], Dir=[%s], ", panels[pIID].EID,
-                panels[pIID].name.c_str(), panels[pIID].directorate.c_str());
-        if (conf.panelFileFormat == 1) {
-            printf("Org=[%s], OrgID=%d", panels[pIID].organizer.c_str(),
-                                         panels[pIID].organizerID);
+        Panel &p = panels[pIID];
+        printf("Panel %d [%s], Dir=[%s], ",
+                p.EID, p.name.c_str(), p.directorate.c_str());
+        if (conf.panelsIncludeOrganizer) {
+            printf("Org=[%s], ", p.organizer.c_str());
         }
-        printf("Len=%d, StartDateID=%d, Size=%d, Requirements: ",
-            panels[pIID].numberOfDays, panels[pIID].startingDateIID,
-            panels[pIID].size);
-        for (int i = 0; i < panels[pIID].roomRequirements.size(); ++i) {
-            printf("%d", (panels[pIID].roomRequirements[i]) ? 1 : 0);
+        printf("OrgKey=[%s], Len=%d, StartDateID=%d, Size=%d, Requirements: ",
+            p.organizerKey.c_str(), p.numberOfDays, p.startingDateIID, p.size);
+        for (int i = 0; i < p.roomRequirements.size(); ++i) {
+            printf("%d", (p.roomRequirements[i]) ? 1 : 0);
         }
         printf("\n");
     }
@@ -1714,13 +1870,14 @@ void printUnscheduled(vector<Assignment> &assignments)
             if (assignments[i].panelIID == pIID) { foundPIID = true; break; }
         }
         if (!foundPIID) {
-            ofs << panels[pIID].EID << "," << panels[pIID].name << ","
+            ofs << panels[pIID].EID << ","
+                << panels[pIID].name << ","
                 << panels[pIID].directorate << ",";
-            if (conf.panelFileFormat == 1) {
-                ofs << panels[pIID].organizer << ","
-                    << panels[pIID].organizerID << ",";
+            if (conf.panelsIncludeOrganizer) {
+                ofs << panels[pIID].organizer << ",";
             }
-            ofs << panels[pIID].numberOfDays << ","
+            ofs << panels[pIID].organizerKey << ","
+                << panels[pIID].numberOfDays << ","
                 << dates[panels[pIID].startingDateIID].fName << ","
                 << panels[pIID].size;
             for (int j = 0; j < panels[pIID].roomRequirements.size(); ++j) {
