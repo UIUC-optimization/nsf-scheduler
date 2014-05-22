@@ -41,6 +41,13 @@ vector<pair<int,int> > dateIntervals;
 
 unordered_map<string, int> orgKey_orgIID_map;
 
+// TODO:
+// - Consider refactoring code to include a default shift of 0 for assignments
+//   and then replace ShiftedAssignment with Assignment, along with appropriate
+//   shift checks.
+//   NOTE: This change would make it more difficult to distinguish whether
+//   shifted assignments are allowed or not
+
 int main(int argc, const char **argv)
 {
     parseArgs(argc, argv);
@@ -77,21 +84,20 @@ int main(int argc, const char **argv)
     // Conduct feasibility post-test on final schedule
     feasibilityPostTest(assignments);
 
-
-    // Attempt to shift unscheduled panels by single days in either direction
+    // Attempt to shift unscheduled panels by several days in either direction
+    // to reschedule them within the same week
+    vector<ShiftedAssignment> shiftedAssignments;
     if ((assignments.size() < panels.size()) && (conf.attemptShiftScheduling)){
-        vector<ShiftedAssignment> shiftedAssignments =
-                                    shiftScheduleRemainder(si, assignments);
-        // TODO: Incorporate these into the printed schedule
+        shiftedAssignments = shiftScheduleRemainder(si, assignments);
     }
 
     // Output results
-    //printAssignments(assignments);
+    //printAssignments(assignments, shiftedAssignments);
     if (strlen(conf.scheduleFile) > 0) {
-        printSchedule(assignments);
+        printSchedule(assignments, shiftedAssignments);
     }
     if (strlen(conf.unscheduledFile) > 0) {
-        printUnscheduled(assignments);
+        printUnscheduled(assignments, shiftedAssignments);
     }
 
     outputSolutionInfo(si);
@@ -156,10 +162,11 @@ void printUsageAndExit(const char *argv0)
         "       [-s <schedule file>]    (File to print the schedule (CSV))\n"
         "       [-u <unscheduled file>] (File to list unsched. panels (CSV))\n"
         "       [-e]                    (Use exact scheduler (DEFAULT))\n"
-        "       [-g]                    (Use greedy scheduler (IN PROGRESS)\n"
+        "       [-g]                    (Use greedy scheduler)\n"
         "       [-r]                    (Use random scheduler)\n"
         "       [-n <numAttempts>]      (Number of attempts for random alg.)\n"
-        "       [-p]                    (Prints additional solver info)\n",
+        "       [-p]                    (Prints additional solver info)\n"
+        "       [-ss]                   (Enable shift-scheduling)\n",
         argv0);
     fprintf(stderr, "  All input files must be in CSV format\n");
     exit(-1);
@@ -1796,8 +1803,10 @@ void printPanels()
     return;
 }
 
-void printAssignments(vector<Assignment> &assignments)
+void printAssignments(vector<Assignment> &assignments,
+                      vector<ShiftedAssignment> &shiftedAssignments)
 {
+    // Print the assignments
     printf("*** Assignments ***\n");
     for (int i = 0; i < assignments.size(); ++i) {
         int rIID = assignments[i].roomIID;
@@ -1811,15 +1820,31 @@ void printAssignments(vector<Assignment> &assignments)
         }
         printf("\n");
     }
+    // Print the shifted assignments
+    printf("*** Shifted Assignments ***\n");
+    for (int i = 0; i < shiftedAssignments.size(); ++i) {
+        int rIID = shiftedAssignments[i].roomIID;
+        int pIID = shiftedAssignments[i].panelIID;
+        int shift = shiftedAssignments[i].shift;
+        int sdIID = panels[pIID].startingDateIID + shift;
+        printf("Panel %d [%s] shift-scheduled in Room %d [%s] for day(s) ",
+                panels[pIID].EID, panels[pIID].name.c_str(),
+                rooms[rIID].EID, rooms[rIID].name.c_str());
+        for (int dIID = sdIID; dIID < sdIID+panels[pIID].numberOfDays; ++dIID){
+            printf("%d [%s], ", dIID, dates[dIID].fName.c_str());
+        }
+    }
     return;
 }
 
-void printSchedule(vector<Assignment> &assignments)
+void printSchedule(vector<Assignment> &assignments,
+                   vector<ShiftedAssignment> &shiftedAssignments)
 {
     if (strlen(conf.scheduleFile) <= 0) {
         return; // No schedule file specified
     }
-    vector<vector<Assignment> > schedule = makeSchedule(assignments);
+    vector<vector<Assignment> > schedule =
+            makeSchedule(assignments, shiftedAssignments);
     std::ofstream ofs;
     ofs.open(conf.scheduleFile, std::ofstream::out);
 
@@ -1854,7 +1879,8 @@ void printSchedule(vector<Assignment> &assignments)
     return;
 }
 
-void printUnscheduled(vector<Assignment> &assignments)
+void printUnscheduled(vector<Assignment> &assignments,
+                      vector<ShiftedAssignment> &shiftedAssignments)
 {
     if (strlen(conf.unscheduledFile) <= 0) {
         return; // No unscheduled panels file specified
@@ -1866,8 +1892,17 @@ void printUnscheduled(vector<Assignment> &assignments)
         bool foundPIID = false;
         // This search could be made more efficient, but not likely to be an
         // issue in practice
+        // Check for panel in the regular assignments
         for (int i = 0; i < assignments.size(); ++i) {
-            if (assignments[i].panelIID == pIID) { foundPIID = true; break; }
+            if (assignments[i].panelIID == pIID) {
+                foundPIID = true; break;
+            }
+        }
+        // Check for panel in the shifted assignments
+        for (int i = 0; i < shiftedAssignments.size(); ++i) {
+            if (shiftedAssignments[i].panelIID == pIID) {
+                foundPIID = true; break;
+            }
         }
         if (!foundPIID) {
             ofs << panels[pIID].EID << ","
@@ -1893,15 +1928,31 @@ void printUnscheduled(vector<Assignment> &assignments)
 
 vector<vector<Assignment> > makeSchedule(vector<Assignment> &assignments)
 {
+    vector<ShiftedAssignment> shiftedAssignments;
+    return makeSchedule(assignments, shiftedAssignments);
+}
+
+vector<vector<Assignment> > makeSchedule(vector<Assignment> &assignments,
+                                vector<ShiftedAssignment> &shiftedAssignments)
+{
     vector<vector<Assignment> > schedule;
     schedule.resize(dates.size());
+    // Add the regular assignments to the schedule
     for (int i = 0; i < assignments.size(); ++i) {
         int rIID = assignments[i].roomIID;
         int pIID = assignments[i].panelIID;
         int sdIID = panels[pIID].startingDateIID;
-        // For each of the days that the panel is scheduled
         for (int dIID = sdIID; dIID < sdIID+panels[pIID].numberOfDays; ++dIID){
-            // Add the <room,panel> pair to the schedule
+            schedule[dIID].push_back(Assignment(pIID, rIID));
+        }
+    }
+    // Add the shifted assignments to the schedule
+    for (int i = 0; i < shiftedAssignments.size(); ++i) {
+        int rIID = shiftedAssignments[i].roomIID;
+        int pIID = shiftedAssignments[i].panelIID;
+        int shift = shiftedAssignments[i].shift;
+        int sdIID = panels[pIID].startingDateIID + shift;
+        for (int dIID = sdIID; dIID < sdIID+panels[pIID].numberOfDays; ++dIID){
             schedule[dIID].push_back(Assignment(pIID, rIID));
         }
     }

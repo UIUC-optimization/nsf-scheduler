@@ -345,16 +345,20 @@ ShiftedAssignment shiftSchedulePanel(int pIID, int shift,
                                 vector<vector<bool> > &roomAvailabilities,
                                 vector<vector<bool> > &organizerAvailabilities);
 
-
 // Print / output functions
 void printRooms();
 void printDates();
 void printPanels();
 
-void printAssignments(vector<Assignment> &assignments);
-void printSchedule(vector<Assignment> &assignments);
-void printUnscheduled(vector<Assignment> &assignments);
+void printAssignments(vector<Assignment> &assignments,
+                      vector<ShiftedAssignment> &shiftedAssignments);
+void printSchedule(vector<Assignment> &assignments,
+                   vector<ShiftedAssignment> &shiftedAssignments);
+void printUnscheduled(vector<Assignment> &assignments,
+                      vector<ShiftedAssignment> &shiftedAssignments);
 vector<vector<Assignment> > makeSchedule(vector<Assignment> &assignments);
+vector<vector<Assignment> > makeSchedule(vector<Assignment> &assignments,
+                                vector<ShiftedAssignment> &shiftedAssignments);
 
 void printIntervalRemPanels(int iIID, vector<vector<int> > &intRemPanels);
 void printIntervalRemRooms(int iIID, vector<vector<int> > &intRemRooms);
