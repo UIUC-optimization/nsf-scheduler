@@ -33,12 +33,17 @@ across a specified time period. The inputs to the scheduling code are:
     unavailable (e.g., weekends, holidays), and room-specific availabilities
     can be used to override the default behavior.
 
+  * Organizers: A list of panel organizers. Each organizer has a name (not
+    necessarily unique) and a set of one or more unique organizer keys that
+    are used to associate panels with specific organizers.
+
   * Panels: A list of the panels in the scheduling period. Each panel has an
-    integer ID, a name, an associated program directorate (PD), a number of
-    days for the panel (1, 2, or 3), a starting date, a size (number of panel
-    members), and a list of boolean panel requirements that correspond to the
-    room features (e.g., whether or not the panel needs
-    whiteboards).
+    integer ID, a name, an associated program directorate, an organizer key
+    (which must either belong to one of the organizers or be empty if the
+    panel has no specific organizer), a number of days for the panel (1, 2, or
+    3), a starting date, a size (number of panel members), and a list of
+    boolean panel requirements that correspond to the room features (e.g.,
+    whether or not the panel needs whiteboards).
 
 Example inputs are located at `data/small/`. Note that all input files must be
 specified in .csv format.
@@ -50,7 +55,7 @@ The NSF scheduler attempts to assign panels to rooms subject to the following
 constraints:
 
   * Panels must start on the specified start date; they cannot be moved to
-    another date.
+    another date (during the first phase of scheduling).
 
   * Multi-day panels must be assigned to the same room for each subsequent day.
 
@@ -105,7 +110,11 @@ The algorithm does the following:
   6. Run a feasibility post-test on the resulting schedule to ensure that no
     constraints were violated (this is mainly used for debugging purposes).
 
-  7. Output the schedule and solution information to the appropriate files.
+  7. Optional: Attempt to schedule any unscheduled panels on alternate dates
+    within the same week, while ensuring that rescheduling a panel does not
+    cause a panel organizer to be double-booked on any date.
+
+  8. Output the schedule and solution information to the appropriate files.
 
 
 Solvers
@@ -147,7 +156,8 @@ There are three primary outputs from the scheduling algorithm:
 
   * Solution information in JSON format, including the number of panels
     scheduled and information about potential infeasibilities in the input
-    data.
+    data. Also contains information about how many panels were successfully
+    rescheduled on a different starting date during the week.
 
   * A .csv file displaying the assignments of panels to rooms in a matrix
     format with columns indexed by date, rows indexed by room, and entries
@@ -253,11 +263,12 @@ Running the Code
 
 To run the code, simply execute the following in the `code/` directory:
 
-    ./scheduler <roomsFile> <datesFile> <panelsFile>
+    ./scheduler <roomsFile> <datesFile> <organizersFile> <panelsFile>
 
 With the example data, this would be:
 
-    ./scheduler ../data/small/rooms.csv ../data/small/dates.csv ../data/small/panels.csv
+    ./scheduler ../data/small/rooms.csv ../data/small/dates.csv \
+                ../data/small/organizers.csv ../data/small/panels.csv
 
 The following additional arguments are optional:
 
@@ -296,6 +307,11 @@ The following additional arguments are optional:
   * Print additional information during the scheduling process:
 
         -p
+
+  * Allow the scheduler to shift any unscheduled panels to alternate dates
+    within the same week in order to reschedule them:
+
+        -ss
 
 
 Licensing Information
