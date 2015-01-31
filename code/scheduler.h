@@ -20,6 +20,7 @@ using std::unordered_map;
 #include <istream>
 #include <iostream>
 #include <utility>
+#include <ctime>
 
 enum Algorithm { EXACT, RANDOM, GREEDY };
 

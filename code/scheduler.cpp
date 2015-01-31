@@ -44,6 +44,15 @@ vector<pair<int,int> > dateWindows;
 
 unordered_map<string, int> orgKey_orgIID_map;
 
+// Platform-specific functions
+#if defined _WIN32 || defined _WIN64
+    void setSeed(long s) { srand(s); }
+    double randomFloat() { return ((double) (rand() / (RAND_MAX + 1))); }
+#else
+    void setSeed(long s) { srand48(s); }
+    double randomFloat() { return drand48(); }
+#endif
+
 // TODO:
 // - Consider refactoring code to include a default shift of 0 for assignments
 //   and then replace ShiftedAssignment with Assignment, along with appropriate
@@ -64,8 +73,8 @@ int main(int argc, const char **argv)
     checkConsistency();
 
     // Set the initial random seed
-    //srand48((long) time(NULL));
-    srand48(0); // Fixed initial seed for testing
+    //setSeed((long) time(NULL));
+    setSeed(0); // Fixed initial seed for testing
 
     // DEBUG:
     //printRooms();
@@ -2108,7 +2117,7 @@ void printWindowRemPanels(int wIID, vector<vector<int> > &intRemPanels)
 // Generates uniform random integer i with a <= i <= b
 int randomInt(int a, int b)
 {
-    return ((int) floor(drand48() * (b - a + 1.0))) + a ;
+    return ((int) floor(randomFloat() * (b - a + 1.0))) + a ;
 }
 
 /*****************************************************************************/

@@ -1,7 +1,8 @@
 CC = g++ -std=c++0x
 CFLAGS = -O3 #-g -Wall
 DFLAGS = -g -pg
-LDFLAGS = -lm
+LDFLAGS = -lm -static
+# Use static linking for distributing executable
 
 PROG = scheduler
 DEBUG_PROG = scheduler-debug
