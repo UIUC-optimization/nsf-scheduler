@@ -17,8 +17,10 @@ using std::string;
 using std::vector;
 #include <unordered_map>
 using std::unordered_map;
+#include <istream>
 #include <iostream>
 #include <utility>
+#include <ctime>
 
 enum Algorithm { EXACT, RANDOM, GREEDY };
 
@@ -28,7 +30,7 @@ enum Algorithm { EXACT, RANDOM, GREEDY };
 struct Config {
     Config() {
         // Default Settings
-        printIntervalInfo = false;
+        printWindowInfo = false;
         ignoreRoomCapacities = false;
         ignorePanelReqs = false;
         attemptShiftScheduling = false;
@@ -62,7 +64,7 @@ struct Config {
     std::ostream *outstream;
 
     // Other global settings
-    bool printIntervalInfo;
+    bool printWindowInfo;
     bool ignoreRoomCapacities;
     bool ignorePanelReqs;
     bool attemptShiftScheduling;
@@ -210,8 +212,8 @@ struct SolutionInfo {
         numScheduledPanels = 0;
         numSatisfiedPanelReqs = 0;
 
-        numOptIntervals = 0;
-        numCompleteIntervals = 0;
+        numOptWindows = 0;
+        numCompleteWindows = 0;
 
         numShiftScheduledPanels = 0;
         numShiftSatisfiedPanelReqs = 0;
@@ -226,8 +228,8 @@ struct SolutionInfo {
     int numScheduledPanels;
     int numSatisfiedPanelReqs;
 
-    int numOptIntervals;
-    int numCompleteIntervals;
+    int numOptWindows;
+    int numCompleteWindows;
 
     int numShiftScheduledPanels;
     int numShiftSatisfiedPanelReqs;
@@ -235,10 +237,10 @@ struct SolutionInfo {
 };
 
 struct BranchInfo {
-    BranchInfo(int branch_iIID) {
-        iIID = branch_iIID;
-        numPanelsInInterval = 0;
-        numPanelReqsInInterval = 0;
+    BranchInfo(int branch_wIID) {
+        wIID = branch_wIID;
+        numPanelsInWindow = 0;
+        numPanelReqsInWindow = 0;
 
         numScheduledPanels = 0;
         numSatisfiedPanelReqs = 0;
@@ -248,9 +250,9 @@ struct BranchInfo {
         exceededTimeLimit = false;
     }
 
-    int iIID;
-    int numPanelsInInterval;
-    int numPanelReqsInInterval;
+    int wIID;
+    int numPanelsInWindow;
+    int numPanelReqsInWindow;
 
     int numRemPanels;
     int numRemPanelReqs;
@@ -260,7 +262,7 @@ struct BranchInfo {
     int bestSolNumScheduledPanels;
     int bestSolNumSatisfiedPanelReqs;
 
-    clock_t intervalStartTime;
+    clock_t windowStartTime;
     bool exceededTimeLimit;
 
     vector<vector<int> > remSDPanels;
@@ -280,8 +282,11 @@ void initializeRooms();
 void initializeDates();
 void initializeOrganizers();
 void initializePanels();
-void initializeDateIntervals();
-void initializeDateIntervalsHelper(int sdIID, int cdIID, int edIID);
+void initializeDateWindows();
+void initializeDateWindowsHelper(int sdIID, int cdIID, int edIID);
+
+// Consistency-checking functions
+void checkConsistency();
 
 // Output Stream Functions
 void initializeOutputStream();
@@ -308,8 +313,8 @@ void checkOrganizerDoubleBooking(vector<vector<Assignment> > &schedule);
 // Solver functions
 vector<Assignment> solve(SolutionInfo &si);
 
-vector<Assignment> exactlyScheduleInterval(int iIID, SolutionInfo &si);
-vector<Assignment> ext_scheduleForInterval(BranchInfo &bi);
+vector<Assignment> exactlyScheduleWindow(int wIID, SolutionInfo &si);
+vector<Assignment> ext_scheduleForWindow(BranchInfo &bi);
 vector<Assignment> ext_scheduleSDPanels(int dIID, vector<int> &remSDPanels,
                                         vector<int> &remRooms,
                                         rem_rooms_map &lookupTable);
@@ -317,23 +322,23 @@ vector<Assignment> ext_scheduleSDPanels(int dIID, vector<int> &remSDPanels,
 int computeSatisfiedPanelReqsBound(BranchInfo &bi);
 int computeScheduledPanelsBound(BranchInfo &bi, int satisfiedPanelReqsBound);
 
-vector<Assignment> randomlyScheduleInterval(int iIID, SolutionInfo &si);
-vector<Assignment> rnd_scheduleForInterval(int iIID);
-vector<Assignment> rnd_scheduleForDate(int dIID, int iIID,
+vector<Assignment> randomlyScheduleWindow(int wIID, SolutionInfo &si);
+vector<Assignment> rnd_scheduleForWindow(int wIID);
+vector<Assignment> rnd_scheduleForDate(int dIID, int wIID,
                                        vector<vector<int> > &intRemPanels,
                                        vector<vector<int> > &intRemRooms);
-Assignment rnd_schedulePanel(int pIID, int iIID,
+Assignment rnd_schedulePanel(int pIID, int wIID,
                              vector<vector<int> > &intRemPanels,
                              vector<vector<int> > &intRemRooms);
 
-vector<Assignment> grd_scheduleForDate(int dIID, int iIID,
+vector<Assignment> grd_scheduleForDate(int dIID, int wIID,
                                        vector<vector<int> > &intRemPanels,
                                        vector<vector<int> > &intRemRooms);
 
 // Helper functions
 vector<Assignment> scheduleSingleDayRequests(const vector<int>& lPanels,
                                              const vector<int>& lRooms);
-vector<int> computePotentialRoomsForPanel(int pIID, int iIID,
+vector<int> computePotentialRoomsForPanel(int pIID, int wIID,
                                           vector<vector<int> > &intRemRooms);
 vector<int> computePotentialRoomsForPanel(int pIID, int shift,
                                     vector<vector<bool> > &roomAvailabilities);
@@ -348,6 +353,7 @@ ShiftedAssignment shiftSchedulePanel(int pIID, int shift,
 // Print / output functions
 void printRooms();
 void printDates();
+void printOrganizers();
 void printPanels();
 
 void printAssignments(vector<Assignment> &assignments,
@@ -360,14 +366,15 @@ vector<vector<Assignment> > makeSchedule(vector<Assignment> &assignments);
 vector<vector<Assignment> > makeSchedule(vector<Assignment> &assignments,
                                 vector<ShiftedAssignment> &shiftedAssignments);
 
-void printIntervalRemPanels(int iIID, vector<vector<int> > &intRemPanels);
-void printIntervalRemRooms(int iIID, vector<vector<int> > &intRemRooms);
+void printWindowRemPanels(int wIID, vector<vector<int> > &intRemPanels);
+void printWindowRemRooms(int wIID, vector<vector<int> > &intRemRooms);
 
 // Miscellaneous helper functions
 int randomInt(int a, int b);
 
 // I/O helper functions
 void readCSV(const char *inFile, vector<vector<string> > &records);
+std::istream& safeGetline(std::istream& is, std::string& t);
 yymmdd parseDate(string dateString);
 int monthNameToNumber(string monthName);
 int lookupDateIID(string dateString);
