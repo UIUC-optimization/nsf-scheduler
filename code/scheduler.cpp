@@ -101,7 +101,8 @@ int main(int argc, const char **argv)
     // Attempt to shift unscheduled panels by several days in either direction
     // to reschedule them within the same week
     vector<ShiftedAssignment> shiftedAssignments;
-    if ((assignments.size() < panels.size()) && (conf.attemptShiftScheduling)){
+    if ((assignments.size() < panels.size()) &&
+        (conf.shiftSchedulingDeltaMax > 0)){
         shiftedAssignments = shiftScheduleRemainder(si, assignments);
     }
 
@@ -155,7 +156,7 @@ void parseArgs(int argc, const char **argv)
         } else if (std::strcmp(*(argv + i), "-p") == 0) {
             conf.printWindowInfo = true;
         } else if (std::strcmp(*(argv + i), "-ss") == 0) {
-            conf.attemptShiftScheduling = true;
+            ++i; conf.shiftSchedulingDeltaMax = atoi(*(argv + i));
 // These options are for testing purposes only...
         } else if (std::strcmp(*(argv + i), "-ic") == 0) {
             conf.ignoreRoomCapacities = true;
@@ -1723,9 +1724,8 @@ vector<ShiftedAssignment> shiftScheduleRemainder(SolutionInfo &si,
         }
     }
 
-    int shiftVals[] = { 1, -1, 2, -2, 3, -3 };
-    for (int i = 0; i < 6; ++i) {
-        int shift = shiftVals[i];
+    for (int i = 1; i <= 2 * conf.shiftSchedulingDeltaMax; ++i) {
+        int shift = (i % 2 == 1) ? ((i + 1) / 2) : (-1 * i / 2);
         vector<int> unsuccessfullyShiftedPanels;
         while (unscheduledPanels.size() > 0) {
             // Find a random unscheduled panel and try to schedule it
@@ -1801,6 +1801,7 @@ ShiftedAssignment shiftSchedulePanel(int pIID, int shift,
     // weekend, which we do not want to allow.
     // (NOTE: We only need to worry about this when we have a shift of +/- 3,
     // but this allows us to potentially handle higher shifts as well.)
+    /* REMOVED (2015-08-13): Want to allow arbitrarily large shifts
     int emptyDaysBetween = 0;
     if (newSDIID < oldSDIID) {
         for (int dIID = newSDIID + 1; dIID < oldSDIID; ++dIID) {
@@ -1818,6 +1819,7 @@ ShiftedAssignment shiftSchedulePanel(int pIID, int shift,
     if (emptyDaysBetween >= 2) {
         return sa;
     }
+    */
 
     // Check that the panel at this shift would not create a double-booking
     // conflict for the organizer, if there is one

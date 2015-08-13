@@ -33,9 +33,9 @@ struct Config {
         printWindowInfo = false;
         ignoreRoomCapacities = false;
         ignorePanelReqs = false;
-        attemptShiftScheduling = false;
         checkStartDateDoubleBooking = false;
         panelsIncludeOrganizer = false;
+        shiftSchedulingDeltaMax = 0;
 
         alg = EXACT;
 
@@ -67,9 +67,9 @@ struct Config {
     bool printWindowInfo;
     bool ignoreRoomCapacities;
     bool ignorePanelReqs;
-    bool attemptShiftScheduling;
     bool checkStartDateDoubleBooking;
     bool panelsIncludeOrganizer;
+    int shiftSchedulingDeltaMax;
 
     // Algorithm Settings
     Algorithm alg;
